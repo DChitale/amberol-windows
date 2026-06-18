@@ -574,9 +574,102 @@ fn get_setting(key: String, app: AppHandle, state: State<'_, AppStore>) -> Resul
     Ok(setting)
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EqPreset {
+    name: String,
+    gains: Vec<f64>,
+}
+
+fn parse_fac_file(content: &str) -> Result<EqPreset, String> {
+    let mut name = String::new();
+    let mut gains = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+    
+    if lines.len() >= 3 {
+        name = lines[2].trim().to_string();
+    }
+    
+    let mut num_bands = 0;
+    let mut eq_start_line = 0;
+    for (i, line) in lines.iter().enumerate() {
+        if line.contains("Number of EQ Bands") {
+            if let Some(num_str) = line.split(':').next() {
+                num_bands = num_str.trim().parse::<usize>().unwrap_or(0);
+                eq_start_line = i;
+                break;
+            }
+        }
+    }
+    
+    if num_bands > 0 && eq_start_line > 0 {
+        let mut line_idx = eq_start_line + 2; // Skip "Number of EQ Bands" and "On/Off Flag"
+        for _ in 0..num_bands {
+            if line_idx + 2 >= lines.len() {
+                break;
+            }
+            let gain_line = lines[line_idx + 2];
+            if let Some(gain_str) = gain_line.split(':').next() {
+                let gain = gain_str.trim().parse::<f64>().unwrap_or(0.0);
+                gains.push(gain);
+            }
+            line_idx += 3;
+        }
+    }
+    
+    Ok(EqPreset { name, gains })
+}
+
+#[tauri::command]
+fn get_equalizer_presets(app: AppHandle) -> Result<Vec<EqPreset>, String> {
+    let mut presets = Vec::new();
+    
+    // Check resource directory (production)
+    let mut presets_path = None;
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let path = resource_dir.join("presets");
+        if path.exists() && path.is_dir() {
+            presets_path = Some(path);
+        }
+    }
+    
+    // Fallback to current directory (dev environment)
+    if presets_path.is_none() {
+        if let Ok(current_dir) = std::env::current_dir() {
+            let path = current_dir.join("presets");
+            if path.exists() && path.is_dir() {
+                presets_path = Some(path);
+            }
+        }
+    }
+    
+    let path = match presets_path {
+        Some(p) => p,
+        None => return Ok(presets),
+    };
+    
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("fac") {
+                let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").to_string();
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(mut preset) = parse_fac_file(&content) {
+                        preset.name = name;
+                        presets.push(preset);
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(presets)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             app.manage(AppStore { lock: Mutex::new(()) });
             Ok(())
@@ -597,7 +690,8 @@ pub fn run() {
             record_playback,
             get_settings,
             set_setting,
-            get_setting
+            get_setting,
+            get_equalizer_presets
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

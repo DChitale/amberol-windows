@@ -61,6 +61,21 @@ input {
   background: transparent;
 }
 
+.eq-scrollbar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.eq-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.eq-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .glass-window {
   background: transparent;
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);

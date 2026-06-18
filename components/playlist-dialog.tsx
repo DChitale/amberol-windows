@@ -36,7 +36,7 @@ export function PlaylistDialog({ open, onOpenChange, onSubmit }: PlaylistDialogP
         </DialogHeader>
         <form className="flex gap-2" onSubmit={submit}>
           <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Playlist name" autoFocus />
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" variant="secondary" disabled={busy}>
             Create
           </Button>
         </form>

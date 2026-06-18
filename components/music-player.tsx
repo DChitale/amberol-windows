@@ -7,6 +7,8 @@ import { NowPlaying } from "@/components/now-playing";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { PlaylistDialog } from "@/components/playlist-dialog";
 import { PlaylistSidebar } from "@/components/playlist-sidebar";
+import { UpdaterToast } from "@/components/updater-toast";
+import { EqualizerDialog } from "@/components/equalizer-dialog";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { enrichMissingMetadata } from "@/lib/metadata";
 import {
@@ -30,6 +32,10 @@ import {
 import { usePlayerStore } from "@/store/player-store";
 import type { Playlist, Track } from "@/types/music";
 
+let globalAudioCtx: AudioContext | null = null;
+let globalSourceNode: MediaElementAudioSourceNode | null = null;
+let globalFilters: BiquadFilterNode[] = [];
+
 export function MusicPlayer() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const metadataPassRef = useRef(false);
@@ -38,6 +44,10 @@ export function MusicPlayer() {
   const [duration, setDuration] = useState(0);
   const [scanning, setScanning] = useState(false);
   const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false);
+  const [eqDialogOpen, setEqDialogOpen] = useState(false);
+  const [eqEnabled, setEqEnabled] = useState(false);
+  const [eqGains, setEqGains] = useState<number[]>(Array(10).fill(0));
+  const [eqPreset, setEqPreset] = useState<string>("flat");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
   const [lastScannedFolder, setLastScannedFolder] = useState<string>("");
@@ -82,12 +92,42 @@ export function MusicPlayer() {
     const volume = Number(settingsMap.get("volume"));
     const speed = Number(settingsMap.get("speed"));
     const lastFolder = settingsMap.get("last_scanned_folder") || "";
+
+    const eqEnabledSetting = settingsMap.get("eq_enabled");
+    let eqPresetLoaded = settingsMap.get("eq_preset") || "Flat";
+    const eqGainsSetting = settingsMap.get("eq_gains") || "0,0,0,0,0,0,0,0,0,0";
+
+    // Normalize case for old settings
+    if (eqPresetLoaded === "flat") eqPresetLoaded = "Flat";
+    if (eqPresetLoaded === "bass") eqPresetLoaded = "Bass";
+    if (eqPresetLoaded === "vocal") eqPresetLoaded = "Vocal";
+    if (eqPresetLoaded === "pop") eqPresetLoaded = "Pop";
+    if (eqPresetLoaded === "classical") eqPresetLoaded = "Classical";
+    if (eqPresetLoaded === "rock") eqPresetLoaded = "Rock";
+
+    const eqEnabledLoaded = eqEnabledSetting === "true";
+    let eqGainsLoaded = eqGainsSetting.split(",").map(Number);
+    if (eqGainsLoaded.length < 10) {
+      eqGainsLoaded = [...eqGainsLoaded, ...Array(10 - eqGainsLoaded.length).fill(0)];
+    }
     
     setTracks(tracks);
     setPlaylists(playlists);
     setLastScannedFolder(lastFolder);
     if (Number.isFinite(volume)) setVolume(volume);
     if (Number.isFinite(speed)) setSpeed(speed);
+
+    setEqEnabled(eqEnabledLoaded);
+    setEqPreset(eqPresetLoaded);
+    if (eqGainsLoaded.length === 10 && eqGainsLoaded.every(Number.isFinite)) {
+      setEqGains(eqGainsLoaded);
+    }
+
+    if (globalFilters.length === 10) {
+      globalFilters.forEach((filter, idx) => {
+        filter.gain.value = eqEnabledLoaded ? (eqGainsLoaded[idx] ?? 0) : 0;
+      });
+    }
 
     // Session restoration
     const lastPlaylistIdSetting = settingsMap.get("last_playlist_id");
@@ -144,6 +184,33 @@ export function MusicPlayer() {
   useEffect(() => {
     void refreshLibrary();
   }, [refreshLibrary]);
+
+  const applyGainsToNodes = useCallback((gainsList: number[], isEnabled: boolean) => {
+    if (globalFilters.length === 10) {
+      globalFilters.forEach((filter, idx) => {
+        filter.gain.value = isEnabled ? (gainsList[idx] ?? 0) : 0;
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    applyGainsToNodes(eqGains, eqEnabled);
+  }, [eqGains, eqEnabled, applyGainsToNodes]);
+
+  const handleEqGainsChange = useCallback((nextGains: number[]) => {
+    setEqGains(nextGains);
+    void setSetting("eq_gains", nextGains.join(","));
+  }, []);
+
+  const handleEqEnabledChange = useCallback((nextEnabled: boolean) => {
+    setEqEnabled(nextEnabled);
+    void setSetting("eq_enabled", String(nextEnabled));
+  }, []);
+
+  const handleEqPresetChange = useCallback((nextPreset: string) => {
+    setEqPreset(nextPreset);
+    void setSetting("eq_preset", nextPreset);
+  }, []);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -600,6 +667,55 @@ export function MusicPlayer() {
           onPlay={() => {
             isTransitioningRef.current = false;
             setIsPlaying(true);
+
+            try {
+              if (typeof window !== "undefined" && !globalAudioCtx && audioRef.current) {
+                const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+                const ctx = new AudioCtx();
+                globalAudioCtx = ctx;
+
+                const source = ctx.createMediaElementSource(audioRef.current);
+                globalSourceNode = source;
+
+                const bands = [62.5, 110, 250, 370, 650, 1200, 2130, 4550, 6850, 16000];
+                const types: BiquadFilterType[] = [
+                  "lowshelf",
+                  "peaking",
+                  "peaking",
+                  "peaking",
+                  "peaking",
+                  "peaking",
+                  "peaking",
+                  "peaking",
+                  "peaking",
+                  "highshelf"
+                ];
+
+                const filters = bands.map((freq, idx) => {
+                  const filter = ctx.createBiquadFilter();
+                  filter.type = types[idx] ?? "peaking";
+                  filter.frequency.value = freq;
+                  filter.Q.value = 1.0;
+                  filter.gain.value = eqEnabled ? (eqGains[idx] ?? 0) : 0;
+                  return filter;
+                });
+
+                globalFilters = filters;
+
+                let lastNode: AudioNode = source;
+                filters.forEach((filter) => {
+                  lastNode.connect(filter);
+                  lastNode = filter;
+                });
+                lastNode.connect(ctx.destination);
+              }
+
+              if (globalAudioCtx && globalAudioCtx.state === "suspended") {
+                void globalAudioCtx.resume();
+              }
+            } catch (err) {
+              console.error("Failed to initialize Web Audio API Equalizer graph:", err);
+            }
           }}
           onPause={() => {
             if (isTransitioningRef.current) return;
@@ -673,12 +789,25 @@ export function MusicPlayer() {
             onRepeat={toggleRepeat}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+            eqEnabled={eqEnabled}
+            onToggleEqualizer={() => setEqDialogOpen(!eqDialogOpen)}
           />
         )}
         <div className="no-drag absolute right-0 top-0 z-50">
           <WindowControls />
         </div>
         <PlaylistDialog open={playlistDialogOpen} onOpenChange={setPlaylistDialogOpen} onSubmit={createNewPlaylist} />
+        <UpdaterToast />
+        <EqualizerDialog 
+          open={eqDialogOpen} 
+          onOpenChange={setEqDialogOpen} 
+          enabled={eqEnabled}
+          onEnabledChange={handleEqEnabledChange}
+          gains={eqGains}
+          onGainsChange={handleEqGainsChange}
+          activePreset={eqPreset}
+          onPresetChange={handleEqPresetChange}
+        />
       </div>
   );
 }
