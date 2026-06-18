@@ -6,6 +6,7 @@ import type { Playlist, RepeatMode, Track } from "@/types/music";
 interface PlayerState {
   tracks: Track[];
   queue: Track[];
+  originalQueue: Track[];
   playlists: Playlist[];
   activePlaylistId: number | null;
   currentTrack: Track | null;
@@ -15,7 +16,6 @@ interface PlayerState {
   shuffle: boolean;
   repeat: RepeatMode;
   search: string;
-  recentlyAdded: Track[];
   setTracks: (tracks: Track[]) => void;
   setQueue: (queue: Track[]) => void;
   setPlaylists: (playlists: Playlist[]) => void;
@@ -28,7 +28,6 @@ interface PlayerState {
   setRepeat: (repeat: RepeatMode) => void;
   toggleRepeat: () => void;
   setSearch: (search: string) => void;
-  setRecentlyAdded: (tracks: Track[]) => void;
   nextTrack: () => Track | null;
   previousTrack: () => Track | null;
 }
@@ -41,9 +40,39 @@ function nextRepeatMode(mode: RepeatMode): RepeatMode {
 
 export const repeatModes: RepeatMode[] = ["off", "all", "one"];
 
+function shuffleArray(array: Track[], anchorIndex: number): Track[] {
+  if (array.length <= 1) return [...array];
+  const before = array.slice(0, anchorIndex);
+  const anchor = array[anchorIndex];
+  const after = array.slice(anchorIndex + 1);
+
+  // Fisher-Yates shuffle algorithm
+  const shuffle = (arr: Track[]) => {
+    const res = [...arr];
+    for (let i = res.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const temp = res[i];
+      if (temp && res[j]) {
+        res[i] = res[j]!;
+        res[j] = temp;
+      }
+    }
+    return res;
+  };
+
+  const shuffledBefore = shuffle(before);
+  const shuffledAfter = shuffle(after);
+
+  if (anchor) {
+    return [...shuffledBefore, anchor, ...shuffledAfter];
+  }
+  return [...shuffledBefore, ...shuffledAfter];
+}
+
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   tracks: [],
   queue: [],
+  originalQueue: [],
   playlists: [],
   activePlaylistId: null,
   currentTrack: null,
@@ -53,40 +82,87 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   shuffle: false,
   repeat: "off",
   search: "",
-  recentlyAdded: [],
   setTracks: (tracks) => set({ tracks }),
-  setQueue: (queue) => set({ queue, currentTrack: get().currentTrack ?? queue[0] ?? null }),
+  setQueue: (newQueue) => {
+    const { shuffle, currentTrack, originalQueue } = get();
+    
+    // Check if newQueue is just a subset/reorder of current queue (e.g. reorder or track deletion)
+    const currentIds = new Set(get().queue.map((t) => t.id));
+    const isSubset = newQueue.length > 0 && newQueue.every((t) => currentIds.has(t.id));
+
+    if (isSubset) {
+      if (shuffle) {
+        const originalFiltered = originalQueue.filter((t) => newQueue.some((nq) => nq.id === t.id));
+        set({
+          queue: newQueue,
+          originalQueue: originalFiltered,
+          currentTrack: currentTrack ?? newQueue[0] ?? null
+        });
+      } else {
+        set({
+          queue: newQueue,
+          currentTrack: currentTrack ?? newQueue[0] ?? null
+        });
+      }
+    } else {
+      // Entirely new queue loading (switching playlist or starting app)
+      if (shuffle) {
+        const anchorIndex = currentTrack ? newQueue.findIndex((t) => t.id === currentTrack.id) : 0;
+        const shuffled = shuffleArray(newQueue, anchorIndex >= 0 ? anchorIndex : 0);
+        set({
+          originalQueue: newQueue,
+          queue: shuffled,
+          currentTrack: currentTrack ?? shuffled[0] ?? null
+        });
+      } else {
+        set({
+          originalQueue: [],
+          queue: newQueue,
+          currentTrack: currentTrack ?? newQueue[0] ?? null
+        });
+      }
+    }
+  },
   setPlaylists: (playlists) => set({ playlists }),
   setActivePlaylistId: (activePlaylistId) => set({ activePlaylistId }),
   setCurrentTrack: (currentTrack) => set({ currentTrack }),
   setIsPlaying: (isPlaying) => set({ isPlaying }),
   setVolume: (volume) => set({ volume }),
   setSpeed: (speed) => set({ speed }),
-  setShuffle: (shuffle) => set({ shuffle }),
+  setShuffle: (shuffle) => {
+    const { queue, currentTrack, originalQueue } = get();
+    if (shuffle) {
+      if (get().shuffle) return;
+      const anchorIndex = currentTrack ? queue.findIndex((t) => t.id === currentTrack.id) : 0;
+      const shuffled = shuffleArray(queue, anchorIndex >= 0 ? anchorIndex : 0);
+      set({
+        originalQueue: queue,
+        queue: shuffled,
+        shuffle: true
+      });
+    } else {
+      if (!get().shuffle) return;
+      set({
+        queue: originalQueue.length ? originalQueue : queue,
+        originalQueue: [],
+        shuffle: false
+      });
+    }
+  },
   setRepeat: (repeat) => set({ repeat }),
   toggleRepeat: () => set({ repeat: nextRepeatMode(get().repeat) }),
   setSearch: (search) => set({ search }),
-  setRecentlyAdded: (recentlyAdded) => set({ recentlyAdded }),
   nextTrack: () => {
-    const { queue, currentTrack, shuffle, repeat } = get();
+    const { queue, currentTrack, repeat } = get();
     if (!currentTrack || queue.length === 0) {
       return null;
     }
 
-    if (repeat === "one") {
-      return currentTrack;
-    }
-
-    if (shuffle) {
-      const next = queue[Math.floor(Math.random() * queue.length)] ?? currentTrack;
-      set({ currentTrack: next });
-      return next;
-    }
 
     const currentIndex = queue.findIndex((track) => track.id === currentTrack.id);
     const nextIndex = currentIndex + 1;
     if (nextIndex < queue.length) {
-      const next = queue[nextIndex];
+      const next = queue[nextIndex] ?? null;
       set({ currentTrack: next });
       return next;
     }
@@ -101,14 +177,24 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     return null;
   },
   previousTrack: () => {
-    const { queue, currentTrack } = get();
+    const { queue, currentTrack, repeat } = get();
     if (!currentTrack || queue.length === 0) {
       return null;
     }
 
     const currentIndex = queue.findIndex((track) => track.id === currentTrack.id);
-    const previous = queue[Math.max(0, currentIndex - 1)] ?? currentTrack;
-    set({ currentTrack: previous });
-    return previous;
+    if (currentIndex > 0) {
+      const prev = queue[currentIndex - 1] ?? null;
+      set({ currentTrack: prev });
+      return prev;
+    }
+
+    if (repeat === "all") {
+      const prev = queue[queue.length - 1] ?? null;
+      set({ currentTrack: prev });
+      return prev;
+    }
+
+    return currentTrack;
   }
 }));

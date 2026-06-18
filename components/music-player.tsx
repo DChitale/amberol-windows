@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WindowControls } from "@/components/window-controls";
 import { arrayMove } from "@dnd-kit/sortable";
 import { NowPlaying } from "@/components/now-playing";
+import { WelcomeScreen } from "@/components/welcome-screen";
 import { PlaylistDialog } from "@/components/playlist-dialog";
 import { PlaylistSidebar } from "@/components/playlist-sidebar";
-import { QueuePanel } from "@/components/queue-panel";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { enrichMissingMetadata } from "@/lib/metadata";
 import {
@@ -33,13 +33,14 @@ import type { Playlist, Track } from "@/types/music";
 export function MusicPlayer() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const metadataPassRef = useRef(false);
+  const isTransitioningRef = useRef(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [scanning, setScanning] = useState(false);
   const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [queueOpen, setQueueOpen] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
+  const [lastScannedFolder, setLastScannedFolder] = useState<string>("");
   const [bgStyle, setBgStyle] = useState("");
   const [isMaximized, setIsMaximized] = useState(false);
   const isFadingRef = useRef(false);
@@ -54,7 +55,6 @@ export function MusicPlayer() {
   const shuffle = usePlayerStore((state) => state.shuffle);
   const repeat = usePlayerStore((state) => state.repeat);
   const search = usePlayerStore((state) => state.search);
-  const recentlyAdded = usePlayerStore((state) => state.recentlyAdded);
   const setTracks = usePlayerStore((state) => state.setTracks);
   const setQueue = usePlayerStore((state) => state.setQueue);
   const setPlaylists = usePlayerStore((state) => state.setPlaylists);
@@ -66,30 +66,66 @@ export function MusicPlayer() {
   const setShuffle = usePlayerStore((state) => state.setShuffle);
   const toggleRepeat = usePlayerStore((state) => state.toggleRepeat);
   const setSearch = usePlayerStore((state) => state.setSearch);
-  const setRecentlyAdded = usePlayerStore((state) => state.setRecentlyAdded);
   const nextTrack = usePlayerStore((state) => state.nextTrack);
   const previousTrack = usePlayerStore((state) => state.previousTrack);
 
   const visibleQueue = useMemo(() => (queue.length ? queue : tracks), [queue, tracks]);
 
   const refreshLibrary = useCallback(async () => {
-    const [tracks, playlists, recent, settings] = await Promise.all([
+    const [tracks, playlists, settings] = await Promise.all([
       getTracks(),
       getPlaylists(),
-      getRecentTracks(30),
       getSettings()
     ]);
 
     const settingsMap = new Map(settings);
     const volume = Number(settingsMap.get("volume"));
     const speed = Number(settingsMap.get("speed"));
+    const lastFolder = settingsMap.get("last_scanned_folder") || "";
+    
     setTracks(tracks);
-    setQueue(tracks);
     setPlaylists(playlists);
-    setRecentlyAdded(recent);
+    setLastScannedFolder(lastFolder);
     if (Number.isFinite(volume)) setVolume(volume);
     if (Number.isFinite(speed)) setSpeed(speed);
-    if (!activePlaylistId && playlists[0]) setActivePlaylistId(playlists[0].id);
+
+    // Session restoration
+    const lastPlaylistIdSetting = settingsMap.get("last_playlist_id");
+    const lastTrackIdSetting = settingsMap.get("last_track_id");
+    const lastPlaylistId = lastPlaylistIdSetting ? Number(lastPlaylistIdSetting) : null;
+    const lastTrackId = lastTrackIdSetting ? Number(lastTrackIdSetting) : null;
+
+    let targetPlaylistId = activePlaylistId;
+    if (!targetPlaylistId) {
+      targetPlaylistId = (lastPlaylistId && Number.isInteger(lastPlaylistId)) ? lastPlaylistId : (playlists[0]?.id ?? null);
+    }
+
+    if (targetPlaylistId) {
+      setActivePlaylistId(targetPlaylistId);
+      
+      let playlistTracks: Track[] = [];
+      const playlist = playlists.find((p) => p.id === targetPlaylistId);
+      if (playlist) {
+        if (playlist.name === "Library") {
+          playlistTracks = tracks;
+        } else {
+          playlistTracks = await getPlaylistTracks(targetPlaylistId);
+        }
+      }
+      setQueue(playlistTracks);
+
+      if (lastTrackId && Number.isInteger(lastTrackId)) {
+        const lastTrack = playlistTracks.find((t) => t.id === lastTrackId);
+        if (lastTrack) {
+          setCurrentTrack(lastTrack);
+        } else if (playlistTracks.length > 0) {
+          setCurrentTrack(playlistTracks[0]);
+        }
+      } else if (playlistTracks.length > 0) {
+        setCurrentTrack(playlistTracks[0]);
+      }
+    }
+
     if (!metadataPassRef.current) {
       metadataPassRef.current = true;
       void enrichMissingMetadata(tracks).then(refreshLibrary).catch(() => undefined);
@@ -97,9 +133,9 @@ export function MusicPlayer() {
   }, [
     activePlaylistId,
     setActivePlaylistId,
+    setCurrentTrack,
     setPlaylists,
     setQueue,
-    setRecentlyAdded,
     setSpeed,
     setTracks,
     setVolume
@@ -124,61 +160,25 @@ export function MusicPlayer() {
   useEffect(() => {
     const audio = audioRef.current;
     const track = currentTrack;
-    if (!audio || !track) {
+    if (!audio) {
+      return;
+    }
+
+    // Immediately halt playback of the previous track to prevent audio lag/bleeding
+    isTransitioningRef.current = true;
+    audio.pause();
+
+    if (!track) {
+      isTransitioningRef.current = false;
       return;
     }
 
     let active = true;
 
-    async function fadeOut(el: HTMLAudioElement, durationMs = 250) {
-      return new Promise<void>((resolve) => {
-        const startVolume = el.volume;
-        if (startVolume === 0 || el.paused) {
-          resolve();
-          return;
-        }
-        isFadingRef.current = true;
-        const steps = 12;
-        const stepTime = durationMs / steps;
-        let currentStep = 0;
-        const interval = setInterval(() => {
-          currentStep++;
-          const ratio = 1 - currentStep / steps;
-          el.volume = Math.max(0, startVolume * ratio);
-          if (currentStep >= steps) {
-            clearInterval(interval);
-            isFadingRef.current = false;
-            resolve();
-          }
-        }, stepTime);
-      });
-    }
-
-    async function fadeIn(el: HTMLAudioElement, targetVolume: number, durationMs = 300) {
-      return new Promise<void>((resolve) => {
-        el.volume = 0;
-        isFadingRef.current = true;
-        const steps = 12;
-        const stepTime = durationMs / steps;
-        let currentStep = 0;
-        const interval = setInterval(() => {
-          currentStep++;
-          const ratio = currentStep / steps;
-          el.volume = targetVolume * ratio;
-          if (currentStep >= steps) {
-            clearInterval(interval);
-            el.volume = targetVolume;
-            isFadingRef.current = false;
-            resolve();
-          }
-        }, stepTime);
-      });
-    }
-
     async function loadAudio(el: HTMLAudioElement, t: Track) {
       try {
-        await fadeOut(el, 250);
-        if (!active) return;
+        // Reset volume to the current target in case a previous fade-out was active
+        el.volume = volume;
 
         const bytes = await readFileBytes(t.path);
         if (!active) return;
@@ -204,12 +204,19 @@ export function MusicPlayer() {
 
         el.src = url;
         el.load();
-        if (isPlaying) {
-          void el.play().then(() => {
-            if (active) void fadeIn(el, volume, 300);
-          }).catch(() => setIsPlaying(false));
+        
+        // Read directly from Zustand state to avoid stale React closures while async loading
+        if (usePlayerStore.getState().isPlaying) {
+          void el.play()
+            .then(() => {
+              isTransitioningRef.current = false;
+            })
+            .catch(() => {
+              isTransitioningRef.current = false;
+              setIsPlaying(false);
+            });
         } else {
-          el.volume = volume;
+          isTransitioningRef.current = false;
         }
       } catch (err) {
         console.error("Failed to load audio from database/file system bytes:", err);
@@ -217,12 +224,17 @@ export function MusicPlayer() {
         if (active) {
           el.src = audioSrc(t.path);
           el.load();
-          if (isPlaying) {
-            void el.play().then(() => {
-              if (active) void fadeIn(el, volume, 300);
-            }).catch(() => setIsPlaying(false));
+          if (usePlayerStore.getState().isPlaying) {
+            void el.play()
+              .then(() => {
+                isTransitioningRef.current = false;
+              })
+              .catch(() => {
+                isTransitioningRef.current = false;
+                setIsPlaying(false);
+              });
           } else {
-            el.volume = volume;
+            isTransitioningRef.current = false;
           }
         }
       }
@@ -249,7 +261,7 @@ export function MusicPlayer() {
   // Play/Pause effect
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio) {
+    if (!audio || isTransitioningRef.current) {
       return;
     }
 
@@ -267,6 +279,18 @@ export function MusicPlayer() {
   useEffect(() => {
     void setSetting("speed", String(speed));
   }, [speed]);
+
+  useEffect(() => {
+    if (activePlaylistId) {
+      void setSetting("last_playlist_id", String(activePlaylistId));
+    }
+  }, [activePlaylistId]);
+
+  useEffect(() => {
+    if (currentTrack) {
+      void setSetting("last_track_id", String(currentTrack.id));
+    }
+  }, [currentTrack]);
 
   useEffect(() => {
     const coverArt = currentTrack?.cover_art;
@@ -343,11 +367,9 @@ export function MusicPlayer() {
         const appWindow = mod.getCurrentWindow();
         if (isMaximized) {
           setSidebarOpen(true);
-          setQueueOpen(true);
         } else {
-          await appWindow.setSize(new mod.LogicalSize(350, 620));
+          await appWindow.setSize(new mod.LogicalSize(350, 700));
           setSidebarOpen(false);
-          setQueueOpen(false);
         }
       }).catch((err) => console.error("Failed to set window size:", err));
     }
@@ -411,6 +433,19 @@ export function MusicPlayer() {
     metadataPassRef.current = false;
     await scanFolder(folder);
     await setSetting("last_scanned_folder", folder);
+    setLastScannedFolder(folder);
+    await refreshLibrary();
+    setScanning(false);
+  }
+
+  async function refreshFolder() {
+    if (!lastScannedFolder) {
+      return;
+    }
+
+    setScanning(true);
+    metadataPassRef.current = false;
+    await scanFolder(lastScannedFolder);
     await refreshLibrary();
     setScanning(false);
   }
@@ -527,6 +562,16 @@ export function MusicPlayer() {
     if (currentTrack) {
       void recordPlayback(currentTrack.id, duration);
     }
+    if (repeat === "one") {
+      const audio = audioRef.current;
+      if (audio) {
+        audio.currentTime = 0;
+        audio.volume = volume;
+        void audio.play().catch(() => setIsPlaying(false));
+        setProgress(0);
+        return;
+      }
+    }
     next();
   }
 
@@ -552,6 +597,14 @@ export function MusicPlayer() {
 
         <audio
           ref={audioRef}
+          onPlay={() => {
+            isTransitioningRef.current = false;
+            setIsPlaying(true);
+          }}
+          onPause={() => {
+            if (isTransitioningRef.current) return;
+            setIsPlaying(false);
+          }}
           onTimeUpdate={(event) => {
             const el = event.currentTarget;
             setProgress(el.currentTime);
@@ -574,63 +627,52 @@ export function MusicPlayer() {
           <PlaylistSidebar
             playlists={playlists}
             activePlaylistId={activePlaylistId}
-            recentlyAdded={recentlyAdded}
-            search={search}
+            lastScannedFolder={lastScannedFolder}
             scanning={scanning}
-            onSearch={setSearch}
             onSelectPlaylist={selectPlaylist}
             onCreatePlaylist={() => setPlaylistDialogOpen(true)}
             onScanFolder={scan}
+            onRefreshFolder={refreshFolder}
             onRenamePlaylist={renamePlaylist}
             onDeletePlaylist={removePlaylist}
             onPlayPlaylist={playPlaylist}
             onClose={() => setSidebarOpen(false)}
             showCloseButton={!isMaximized}
+            queueTracks={visibleQueue}
+            currentTrack={currentTrack}
+            onPlayTrack={playTrack}
+            onReorderQueue={reorder}
+            onAddToPlaylist={addTrackToPlaylist}
+            onRemoveFromQueue={removeTrackFromQueue}
             className={isMaximized 
-              ? "border-r border-white/10 bg-black/14 w-[300px]" 
-              : "absolute left-0 top-0 bottom-0 z-30 w-[300px] border-r border-white/10 bg-black/20 backdrop-blur-[20px] shadow-2xl transition-all duration-300"
+              ? "border-r border-white/10 bg-black/14 w-[340px]" 
+              : "absolute left-0 top-0 bottom-0 z-30 w-[340px] border-r border-white/10 bg-black/20 backdrop-blur-[20px] shadow-2xl transition-all duration-300"
             }
           />
         )}
-        <NowPlaying
-          track={currentTrack}
-          audioRef={audioRef}
-          isPlaying={isPlaying}
-          volume={volume}
-          speed={speed}
-          progress={progress}
-          duration={duration || currentTrack?.duration || 0}
-          shuffle={shuffle}
-          repeat={repeat}
-          onToggle={togglePlayback}
-          onNext={next}
-          onPrevious={previous}
-          onSeek={seek}
-          onVolume={setVolume}
-          onSpeed={setSpeed}
-          onShuffle={() => setShuffle(!shuffle)}
-          onRepeat={toggleRepeat}
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          queueOpen={queueOpen}
-          onToggleQueue={() => setQueueOpen(!queueOpen)}
-        />
-        {queueOpen && (
-          <QueuePanel
-            tracks={visibleQueue}
-            currentTrack={currentTrack}
-            playlists={playlists}
-            search={search}
-            onPlay={playTrack}
-            onReorder={reorder}
-            onAddToPlaylist={addTrackToPlaylist}
-            onRemove={removeTrackFromQueue}
-            onClose={() => setQueueOpen(false)}
-            showCloseButton={!isMaximized}
-            className={isMaximized
-              ? "border-l border-white/10 bg-black/10 w-[340px]"
-              : "absolute right-0 top-0 bottom-0 z-30 w-[340px] border-l border-white/10 bg-black/20 backdrop-blur-[20px] shadow-2xl transition-all duration-300"
-            }
+        {tracks.length === 0 ? (
+          <WelcomeScreen onScanFolder={scan} scanning={scanning} />
+        ) : (
+          <NowPlaying
+            track={currentTrack}
+            audioRef={audioRef}
+            isPlaying={isPlaying}
+            volume={volume}
+            speed={speed}
+            progress={progress}
+            duration={duration || currentTrack?.duration || 0}
+            shuffle={shuffle}
+            repeat={repeat}
+            onToggle={togglePlayback}
+            onNext={next}
+            onPrevious={previous}
+            onSeek={seek}
+            onVolume={setVolume}
+            onSpeed={setSpeed}
+            onShuffle={() => setShuffle(!shuffle)}
+            onRepeat={toggleRepeat}
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           />
         )}
         <div className="no-drag absolute right-0 top-0 z-50">

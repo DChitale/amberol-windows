@@ -15,7 +15,7 @@ interface WaveformProps {
 export function Waveform({ audioRef, progress, duration, onSeek, className, trackId = 0 }: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Generate a static, unique, deterministic shape for each song
+  // Generate a static, unique, realistic peak shape for each song using harmonic waves
   const waveformHeights = useMemo(() => {
     const count = 76;
     let seed = (trackId * 1000 + Math.floor(duration)) || 42;
@@ -25,17 +25,34 @@ export function Waveform({ audioRef, progress, duration, onSeek, className, trac
     };
 
     const heights: number[] = [];
+    
+    // Create random wave harmonic parameters for a natural music-like soundwave look
+    const h1Freq = 0.05 + nextRandom() * 0.05;
+    const h2Freq = 0.1 + nextRandom() * 0.15;
+    const h3Freq = 0.2 + nextRandom() * 0.3;
+    
+    const h1Amp = 0.3 + nextRandom() * 0.2;
+    const h2Amp = 0.15 + nextRandom() * 0.15;
+    const h3Amp = 0.05 + nextRandom() * 0.1;
+
     for (let i = 0; i < count; i++) {
-      const r = nextRandom();
-      // Taper the ends to look like a bell curve soundwave
-      const centerFactor = 1 - Math.pow(Math.abs(i - count / 2) / (count / 2), 1.8);
-      const val = (0.15 + r * 0.85) * centerFactor;
-      heights.push(Math.max(0.06, val));
+      const base = 
+        Math.sin(i * h1Freq) * h1Amp +
+        Math.sin(i * h2Freq) * h2Amp +
+        Math.cos(i * h3Freq) * h3Amp;
+        
+      const normalizedBase = (base + (h1Amp + h2Amp + h3Amp)) / ((h1Amp + h2Amp + h3Amp) * 2);
+      const noise = nextRandom();
+      
+      // Compute final height [0.15, 0.95] (no tapering at the left/right boundaries)
+      let val = 0.2 + normalizedBase * 0.55 + noise * 0.2;
+      val = Math.min(0.95, Math.max(0.15, val));
+      heights.push(val);
     }
     return heights;
   }, [trackId, duration]);
 
-  // Butter-smooth, 60fps requestAnimationFrame redraw loop
+  // Redraw loop on animation frame for butter-smooth progress alignment
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) {
@@ -78,29 +95,29 @@ export function Waveform({ audioRef, progress, duration, onSeek, className, trac
       const progressX = progressRatio * rect.width;
 
       const count = waveformHeights.length;
-      const barWidth = rect.width / count;
-      const gap = 3;
-      const widthToDraw = Math.max(2, barWidth - gap);
+      const slotWidth = rect.width / count;
+      const widthToDraw = Math.max(1.5, slotWidth * 0.7); // 70% bar width, 30% gap
+      const gap = slotWidth - widthToDraw;
+
+      // Disable shadow/glow to keep the bars extremely sharp and crisp
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
 
       for (let index = 0; index < count; index += 1) {
-        const value = waveformHeights[index] || 0.1;
-        const height = Math.max(4, value * rect.height * 0.85);
-        const x = index * barWidth;
+        const value = waveformHeights[index] || 0.15;
+        const height = Math.max(4, value * rect.height * 0.72); // compact height
+        const x = index * slotWidth;
         const y = (rect.height - height) / 2;
 
-        const barLeft = x + 1;
+        const barLeft = x + gap / 2;
         const barRight = barLeft + widthToDraw;
 
         if (barRight <= progressX) {
-          // Fully elapsed: show active color with white glow
-          ctx.shadowColor = "rgba(255, 255, 255, 0.55)";
-          ctx.shadowBlur = 6;
+          // Fully elapsed: show active solid white color
           ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
           ctx.fillRect(barLeft, y, widthToDraw, height);
         } else if (barLeft >= progressX) {
           // Fully unplayed: show dim inactive color
-          ctx.shadowColor = "transparent";
-          ctx.shadowBlur = 0;
           ctx.fillStyle = "rgba(255, 255, 255, 0.24)";
           ctx.fillRect(barLeft, y, widthToDraw, height);
         } else {
@@ -109,14 +126,10 @@ export function Waveform({ audioRef, progress, duration, onSeek, className, trac
           const remainingWidth = widthToDraw - elapsedWidth;
 
           // Draw inactive/remaining part
-          ctx.shadowColor = "transparent";
-          ctx.shadowBlur = 0;
           ctx.fillStyle = "rgba(255, 255, 255, 0.24)";
           ctx.fillRect(barLeft + elapsedWidth, y, remainingWidth, height);
 
           // Draw active/elapsed part
-          ctx.shadowColor = "rgba(255, 255, 255, 0.55)";
-          ctx.shadowBlur = 6;
           ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
           ctx.fillRect(barLeft, y, elapsedWidth, height);
         }
@@ -140,7 +153,7 @@ export function Waveform({ audioRef, progress, duration, onSeek, className, trac
   }
 
   return (
-    <button type="button" className={cn("block h-16 w-full cursor-pointer", className)} onPointerDown={seek}>
+    <button type="button" className={cn("block h-10 w-full cursor-pointer", className)} onPointerDown={seek}>
       <canvas ref={canvasRef} className="h-full w-full" />
     </button>
   );
