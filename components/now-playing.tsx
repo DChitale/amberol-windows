@@ -18,7 +18,8 @@ import {
   Disc,
   Star,
   Music,
-  Radio
+  Radio,
+  Sliders
 } from "lucide-react";
 import { AlbumArt } from "@/components/album-art";
 import { ScrollingText } from "@/components/scrolling-text";
@@ -49,6 +50,8 @@ interface NowPlayingProps {
   onRepeat: () => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  eqEnabled: boolean;
+  onToggleEqualizer: () => void;
 }
 
 export function NowPlaying({
@@ -70,7 +73,9 @@ export function NowPlaying({
   onShuffle,
   onRepeat,
   sidebarOpen,
-  onToggleSidebar
+  onToggleSidebar,
+  eqEnabled,
+  onToggleEqualizer
 }: NowPlayingProps) {
   const title = track ? titleForTrack(track) : "No track selected";
   const artist = track ? artistForTrack(track) : "Scan a folder to begin";
@@ -230,6 +235,20 @@ export function NowPlaying({
           title={`Repeat ${repeat}`}
         >
           {repeat === "one" ? <Repeat1 className="h-[18px] w-[18px]" /> : <Repeat className="h-[18px] w-[18px]" />}
+        </Button>
+        <Button 
+          variant="ghost" 
+          size="icon"
+          className={cn(
+            "h-9 w-9 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all",
+            eqEnabled 
+              ? "bg-white/24 border border-white/12 text-white shadow-sm" 
+              : "bg-transparent border border-transparent text-white/60 hover:bg-white/10 hover:text-white"
+          )}
+          onClick={onToggleEqualizer} 
+          title="Audio Equalizer"
+        >
+          <Sliders className="h-[18px] w-[18px]" />
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

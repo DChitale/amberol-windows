@@ -31,7 +31,7 @@ export function TrackRow({ track, active, draggable = false, playlists = [], onP
       ref={sortable.setNodeRef}
       style={style}
       className={cn(
-        "group grid h-[64px] grid-cols-[auto_1fr_auto] items-center gap-3 rounded-md px-2 py-2 text-left transition",
+        "group grid h-[64px] grid-cols-[auto_1fr_auto] items-center gap-3 rounded-md px-2 py-2 text-left transition no-drag",
         active ? "bg-white/14" : "hover:bg-white/8",
         sortable.isDragging && "z-10 bg-white/16 opacity-80"
       )}

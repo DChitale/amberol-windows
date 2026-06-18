@@ -5,7 +5,7 @@ import { closestCenter, DndContext, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { TrackRow } from "@/components/track-row";
-import { FolderPlus, ListMusic, Plus, Play, X, RefreshCw, Music } from "lucide-react";
+import { FolderPlus, ListMusic, Plus, Play, ChevronLeft, RefreshCw, Music } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn, formatDuration } from "@/lib/utils";
 import type { Playlist, Track } from "@/types/music";
@@ -83,7 +83,7 @@ export function PlaylistSidebar({
         {showCloseButton && onClose && (
           <div className="no-drag">
             <Button variant="ghost" size="icon" onClick={onClose} title="Collapse sidebar" className="h-8 w-8">
-              <X className="h-5 w-5" />
+              <ChevronLeft className="h-5 w-5" />
             </Button>
           </div>
         )}
