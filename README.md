@@ -9,11 +9,6 @@ A Windows desktop port of the GNOME [Amberol](https://gitlab.gnome.org/World/amb
 
 ![Preview](https://ik.imagekit.io/dchitale/Amberol/image.png)
 
-## Overview
-
-Amberol Windows recreates the clean, content-focused UI/UX of GNOME Amberol. It is designed to get out of your way and let you focus on your music, featuring backdrop color extraction that morphs with album art, smooth audio visualizers, and minimal interface clutter. 
-
----
 
 ## Features
 
@@ -35,12 +30,6 @@ Amberol Windows recreates the clean, content-focused UI/UX of GNOME Amberol. It 
 - **Styling:** Tailwind CSS, Radix UI Primitives, Lucide React
 - **Application Engine:** Tauri v2
 - **Backend Systems:** Rust
-
----
-
-## Acknowledgements
-
-This project is a recreation of [Amberol](https://gitlab.gnome.org/World/amberol), originally developed by Bastian Ilsolo for the GNOME desktop environment. All credit for the aesthetic layout, color scheme, and visual design goes to the GNOME Amberol contributors.
 
 ---
 
