@@ -38,3 +38,11 @@ export interface TrackMetadataInput {
   duration?: number | null;
   cover_art?: string | null;
 }
+
+export interface MetadataOutput {
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  duration: number | null;
+  cover_art: string | null;
+}

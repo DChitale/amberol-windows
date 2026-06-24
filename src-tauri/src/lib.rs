@@ -1,4 +1,6 @@
+use base64::Engine;
 use chrono::Utc;
+use lofty::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -85,6 +87,15 @@ struct SettingStore {
     updated_at: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct MetadataOutput {
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    duration: Option<f64>,
+    cover_art: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct ScanResult {
     discovered: usize,
@@ -105,6 +116,50 @@ fn is_audio_file(path: &Path) -> bool {
                 .any(|allowed| ext.eq_ignore_ascii_case(allowed))
         })
         .unwrap_or(false)
+}
+
+fn extract_metadata(path: &Path) -> MetadataOutput {
+    let mut result = MetadataOutput {
+        title: None,
+        artist: None,
+        album: None,
+        duration: None,
+        cover_art: None,
+    };
+
+    let tagged_file = match lofty::read_from_path(path) {
+        Ok(f) => f,
+        Err(_) => return result,
+    };
+
+    // Extract duration from file properties
+    let props = tagged_file.properties();
+    let dur = props.duration();
+    let seconds = dur.as_secs_f64();
+    if seconds > 0.0 {
+        result.duration = Some(seconds);
+    }
+
+    // Try primary tag first, fall back to any tag
+    let tag = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
+    if let Some(tag) = tag {
+        result.title = tag.title().map(|s| s.to_string());
+        result.artist = tag.artist().map(|s| s.to_string());
+        result.album = tag.album().map(|s| s.to_string());
+
+        // Extract cover art and encode as base64 data URL
+        if let Some(picture) = tag.pictures().first() {
+            let mime = picture.mime_type();
+            let mime_str = match mime {
+                Some(m) => m.as_str().to_string(),
+                None => "image/jpeg".to_string(),
+            };
+            let b64 = base64::engine::general_purpose::STANDARD.encode(picture.data());
+            result.cover_art = Some(format!("data:{};base64,{}", mime_str, b64));
+        }
+    }
+
+    result
 }
 
 fn get_app_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -223,15 +278,16 @@ fn scan_folder(folder: String, app: AppHandle, state: State<'_, AppStore>) -> Re
             track.modified_at = modified_at;
             inserted_or_updated += 1;
         } else {
+            let meta = extract_metadata(path);
             let track = Track {
                 id: next_id,
                 path: path_string,
                 file_name: file_name.clone(),
-                title: Some(file_name),
-                artist: None,
-                album: None,
-                duration: 0.0,
-                cover_art: None,
+                title: meta.title.or(Some(file_name)),
+                artist: meta.artist,
+                album: meta.album,
+                duration: meta.duration.unwrap_or(0.0),
+                cover_art: meta.cover_art,
                 size_bytes: metadata.len() as i64,
                 modified_at,
                 added_at: current,
@@ -307,6 +363,15 @@ fn get_recent_tracks(limit: i64, app: AppHandle, state: State<'_, AppStore>) -> 
 #[tauri::command]
 fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
     fs::read(path).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn read_metadata(path: String) -> Result<MetadataOutput, String> {
+    let p = Path::new(&path);
+    if !p.exists() || !p.is_file() {
+        return Err(format!("File not found: {}", path));
+    }
+    Ok(extract_metadata(p))
 }
 
 #[tauri::command]
@@ -679,6 +744,7 @@ pub fn run() {
             get_tracks,
             get_recent_tracks,
             read_file_bytes,
+            read_metadata,
             update_track_metadata,
             get_playlists,
             create_playlist,

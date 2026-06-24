@@ -1,6 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { Playlist, ScanResult, Track, TrackMetadataInput } from "@/types/music";
+import type { MetadataOutput, Playlist, ScanResult, Track, TrackMetadataInput } from "@/types/music";
 
 export async function pickMusicFolder() {
   const selected = await open({
@@ -54,6 +54,10 @@ export async function setPlaylistTracks(playlistId: number, trackIds: number[]) 
 
 export async function readFileBytes(path: string) {
   return invoke<number[]>("read_file_bytes", { path });
+}
+
+export async function readMetadata(path: string) {
+  return invoke<MetadataOutput>("read_metadata", { path });
 }
 
 export async function updateTrackMetadata(input: TrackMetadataInput) {

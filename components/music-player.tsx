@@ -26,8 +26,7 @@ import {
   scanFolder,
   setPlaylistTracks,
   setSetting,
-  updatePlaylist,
-  readFileBytes
+  updatePlaylist
 } from "@/lib/tauri-api";
 import { usePlayerStore } from "@/store/player-store";
 import type { Playlist, Track } from "@/types/music";
@@ -49,7 +48,6 @@ export function MusicPlayer() {
   const [eqGains, setEqGains] = useState<number[]>(Array(10).fill(0));
   const [eqPreset, setEqPreset] = useState<string>("flat");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [audioUrl, setAudioUrl] = useState("");
   const [lastScannedFolder, setLastScannedFolder] = useState<string>("");
   const [bgStyle, setBgStyle] = useState("");
   const [isMaximized, setIsMaximized] = useState(false);
@@ -240,90 +238,30 @@ export function MusicPlayer() {
       return;
     }
 
-    let active = true;
+    // Reset volume to the current target in case a previous fade-out was active
+    audio.volume = volume;
 
-    async function loadAudio(el: HTMLAudioElement, t: Track) {
-      try {
-        // Reset volume to the current target in case a previous fade-out was active
-        el.volume = volume;
+    // Use Tauri's native asset protocol to stream audio directly from disk
+    // instead of loading entire files into JS memory via IPC
+    audio.src = audioSrc(track.path);
+    audio.load();
 
-        const bytes = await readFileBytes(t.path);
-        if (!active) return;
-
-        // Convert the bytes to a blob
-        const blob = new Blob([new Uint8Array(bytes)], { type: "audio/mpeg" });
-        const url = URL.createObjectURL(blob);
-
-        if (!active) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-
-        // Revoke old URL
-        setAudioUrl((prev) => {
-          if (prev) {
-            try {
-              URL.revokeObjectURL(prev);
-            } catch (e) {}
-          }
-          return url;
-        });
-
-        el.src = url;
-        el.load();
-        
-        // Read directly from Zustand state to avoid stale React closures while async loading
-        if (usePlayerStore.getState().isPlaying) {
-          void el.play()
-            .then(() => {
-              isTransitioningRef.current = false;
-            })
-            .catch(() => {
-              isTransitioningRef.current = false;
-              setIsPlaying(false);
-            });
-        } else {
+    // Read directly from Zustand state to avoid stale React closures while async loading
+    if (usePlayerStore.getState().isPlaying) {
+      void audio.play()
+        .then(() => {
           isTransitioningRef.current = false;
-        }
-      } catch (err) {
-        console.error("Failed to load audio from database/file system bytes:", err);
-        // Fallback to convertFileSrc
-        if (active) {
-          el.src = audioSrc(t.path);
-          el.load();
-          if (usePlayerStore.getState().isPlaying) {
-            void el.play()
-              .then(() => {
-                isTransitioningRef.current = false;
-              })
-              .catch(() => {
-                isTransitioningRef.current = false;
-                setIsPlaying(false);
-              });
-          } else {
-            isTransitioningRef.current = false;
-          }
-        }
-      }
+        })
+        .catch(() => {
+          isTransitioningRef.current = false;
+          setIsPlaying(false);
+        });
+    } else {
+      isTransitioningRef.current = false;
     }
-
-    void loadAudio(audio, track);
-
-    return () => {
-      active = false;
-    };
   }, [currentTrack]);
 
-  // Clean up object URL on unmount
-  useEffect(() => {
-    return () => {
-      if (audioUrl) {
-        try {
-          URL.revokeObjectURL(audioUrl);
-        } catch (e) {}
-      }
-    };
-  }, [audioUrl]);
+
 
   // Play/Pause effect
   useEffect(() => {
