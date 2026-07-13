@@ -1,65 +1,90 @@
-# Amberol Windows
+﻿# Amberol Windows
+<div align="center">
+<img width="100" height="100" alt="Amberol logo emblem" src="https://raw.githubusercontent.com/DChitale/amberol-windows/v2/icon.png" />
+</div>
+<div align="center">
+  <p>A lightweight, minimalist music player for Windows. Replicating the aesthetic of GNOME's Amberol, built natively on WPF, C#, and NAudio.</p>
+  
+  [![Version](https://img.shields.io/github/v/release/DChitale/amberol-windows?include_prereleases&style=for-the-badge&color=2563eb&label=version)](https://github.com/DChitale/amberol-windows/releases/latest)
+  [![Platform](https://img.shields.io/badge/platform-Windows-0078d4?style=for-the-badge)](https://github.com/DChitale/amberol-windows/releases/latest)
+  [![C#](https://img.shields.io/badge/C%23-Backend-178600?style=for-the-badge&logo=c-sharp&logoColor=white)](https://dotnet.microsoft.com/)
+  [![License](https://img.shields.io/badge/license-MIT-3da639?style=for-the-badge)](LICENSE)
+</div>
 
-[![Tauri Version](https://img.shields.io/badge/Tauri-v2-blue?logo=tauri)](https://tauri.app)
-[![Next.js Version](https://img.shields.io/badge/Next.js-v14-black?logo=nextdotjs)](https://nextjs.org)
-[![Rust Version](https://img.shields.io/badge/Rust-stable-orange?logo=rust)](https://www.rust-lang.org)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-
-An elegant, minimalist offline desktop music player inspired by the GNOME Amberol player, built specifically for Windows. Leveraging the power of Tauri v2, Next.js, Rust, and SQLite, it offers a high-performance audio engine wrapped in a gorgeous frosted-glass, ambient aesthetic that dynamically adapts to your album cover art.
-
+## Features
+ 
+- **Minimalist & Adaptive UI:** Clean flat design with solid charcoal backdrops, smooth slide-out panel animations, and dynamic album-art colors.
+- **Word-by-Word Synced Lyrics:** Full parsing of standard and enhanced `.lrc` files with fluid, real-time karaoke-style word highlighting at 60 FPS.
+- **Advanced Audio Engine:** Powered by NAudio with a 10-band Equalizer, gapless playback, repeat/shuffle logic, and custom equalizer presets.
+- **Opus & Ogg Playback:** Native stream decoding for Opus files (.opus, .ogg) using the Concentus library.
+- **Playlist Management:** Complete support for creating custom playlists, organizing tracks, deleting playlists, and a context menu for adding songs.
+- **Optimized Memory Footprint:** Built natively with WPF to keep resource utilization down.
+- **Built-in Cache Utility:** Instantly clear cached tracks, scanned folders, and image thumbnail cache with one click.
 ---
-
-## 🎨 Design Philosophy
-Amberol Windows centers around simplicity and visual harmony. The user interface adaptively extracts colors from the active track's cover art to construct a smooth gradient backdrop with a subtle, translucent frosted-glass overlay. The sidebars overlay fluidly on top of the player in compact viewports, maximizing horizontal space while keeping controls within reach.
-
+ 
+## Supported Formats
+ 
+- MP3 (`.mp3`)
+- WAV (`.wav`)
+- FLAC (`.flac`)
+- Ogg Vorbis (`.ogg`)
+- Opus (`.opus`)
 ---
-
-## ✨ Features
-
-* **Subtle Frosted-Glass Aesthetics:** Dynamic backdrop color extraction from album art producing responsive, vibrant ambient gradients.
-* **Smooth Waveform Animation:** 60fps canvas-based sub-pixel progress drawing, synced directly to the hardware audio clock.
-* **Lossless & Lossy Audio Support:** Fast recursive scanning for `.mp3`, `.flac`, `.wav`, and `.ogg` formats.
-* **Persistent Library Cache:** Highly reliable local SQLite storage for tracks, custom playlists, listening history, and application settings.
-* **Playlist & Queue Management:** Dynamic queue panel featuring virtualized lists for large collections, drag-and-drop song reordering, search filtering, and single-click removal.
-* **Hardware Media Controls & Transitions:** Responsive keyboard shortcuts (Space, Arrows) combined with volume crossfades at track ends and switches.
-* **Frameless Window Custom Controls:** Borderless window design with tailored window drag boundaries and integrated minimize, maximize, and exit controls.
-
----
-
-## 🛠️ Getting Started
-
+ 
+## Getting Started
+ 
 ### Prerequisites
-Ensure your system meets the requirements for building Tauri applications on Windows:
-* **Node.js** (v20 or newer)
-* **Rust compiler & Cargo** (stable channel)
-* **Microsoft C++ Build Tools** (including the Desktop development with C++ workload)
-* **WebView2 Runtime**
-
-### Installation
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/DChitale/amberol-windows.git
-   cd amberol-windows
-   ```
-2. Install the frontend and development dependencies:
-   ```bash
-   npm install
-   ```
-
-### Development
-Launch the local Next.js development server and the Tauri WebView container:
-```bash
-npm run tauri:dev
+ 
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- Visual Studio 2022 (with .NET desktop development workload)
+ 
+### Build Instructions
+ 
+```powershell
+# Clone and navigate to repository
+git clone https://github.com/DChitale/amberol-windows
+cd amberol-windows
+ 
+# Restore packages and build
+dotnet build -c Release
 ```
-
-### Production Build
-Generate an optimized production binary and native installers (`.msi`, `.exe`):
-```bash
-npm run tauri:build
+ 
+### Running the Application
+ 
+```powershell
+bin\Release\net8.0-windows\amberol-wpf.exe
 ```
-The compiled release executable and installer bundles will be generated under `src-tauri/target/release/bundle/`.
-
+ 
 ---
+ 
+## Architecture
+ 
+### Frontend Layer
+- **Window Shell:** MainWindow.xaml - Minimalist control grid and sliding panels.
+- **Code-Behind:** MainWindow.xaml.cs - Window interactions, rendering ticks, and UI animations.
+- **Converters & Helpers:** Base64 to image mapping, adaptive color extractor.
+ 
+### Service Layer
+- **Audio Engine:** AudioEngine.cs - NAudio output device wrapper, equalizer pipeline, and waveform rendering.
+- **Local Database:** Database.cs - JSON-backed storage for tracks, settings, and playlists.
+- **Custom Decoders:** OpusWaveStream.cs - Decodes Concentus packet streams to PCM WaveFormat for NAudio.
+ 
+---
+ 
+## Configuration
+ 
+User settings, local playlist definitions, and scanned tracks are stored in local JSON databases located at:
+```
+%LocalAppData%\AmberolNet\
+  ├── tracks.json
+  ├── playlists.json
+  ├── settings.json
+  └── covers\ (cached album cover art images)
+```
+ 
+---
+ 
 
-## 📄 License
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+## License
+ 
+MIT License - See LICENSE file for details.
