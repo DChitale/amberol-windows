@@ -14,7 +14,8 @@
 ## Features
  
 - **Minimalist & Adaptive UI:** Clean flat design with solid charcoal backdrops, smooth slide-out panel animations, and dynamic album-art colors.
-- **Word-by-Word Synced Lyrics:** Full parsing of standard and enhanced `.lrc` files with fluid, real-time karaoke-style word highlighting at 60 FPS.
+- **Word-by-Word Synced Lyrics:** Full parsing of standard and enhanced `.lrc` files with fluid, real-time karaoke-style word highlighting and Apple Music-style active word glow effects.
+- **Drag and Drop Support:** Load and play tracks instantly by dragging and dropping individual audio files or entire directories directly into the player.
 - **Advanced Audio Engine:** Powered by NAudio with a 10-band Equalizer, gapless playback, repeat/shuffle logic, and custom equalizer presets.
 - **Opus & Ogg Playback:** Native stream decoding for Opus files (.opus, .ogg) using the Concentus library.
 - **Playlist Management:** Complete support for creating custom playlists, organizing tracks, deleting playlists, and a context menu for adding songs.
@@ -29,6 +30,9 @@
 - FLAC (`.flac`)
 - Ogg Vorbis (`.ogg`)
 - Opus (`.opus`)
+- AAC (`.aac`)
+- M4A / ALAC (`.m4a`)
+- WMA (`.wma`)
 ---
  
 ## Getting Started
