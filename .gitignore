@@ -24,6 +24,9 @@ obj/
 *.sln.docstates
 *.suo
 
+# Output
+Output/
+
 ## OS files
 Thumbs.db
 ehthumbs.db

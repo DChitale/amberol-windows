@@ -1,4 +1,4 @@
-﻿# Amberol Windows
+# Amberol Windows
 <div align="center">
 <img width="100" height="100" alt="Amberol logo emblem" src="https://raw.githubusercontent.com/DChitale/amberol-windows/v2/icon.png" />
 </div>
@@ -52,7 +52,7 @@ dotnet build -c Release
 ### Running the Application
  
 ```powershell
-bin\Release\net8.0-windows\amberol-wpf.exe
+bin\Release\net8.0-windows10.0.19041.0\amberol-win.exe
 ```
  
 ---

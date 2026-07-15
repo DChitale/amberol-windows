@@ -9,6 +9,7 @@ namespace AmberolWpf.Helpers
     {
         public TimeSpan Time { get; set; }
         public string Text { get; set; }
+        public TimeSpan Duration { get; set; }
     }
 
     public class LrcLine
@@ -107,6 +108,44 @@ namespace AmberolWpf.Helpers
 
             // Sort lines by time
             lines.Sort((a, b) => a.Time.CompareTo(b.Time));
+
+            // Calculate word durations
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (!line.HasWordSync) continue;
+
+                for (int j = 0; j < line.Words.Count; j++)
+                {
+                    var word = line.Words[j];
+                    if (j < line.Words.Count - 1)
+                    {
+                        word.Duration = line.Words[j + 1].Time - word.Time;
+                    }
+                    else
+                    {
+                        // Last word in the line.
+                        // Duration is time until next line, capped at 1.5 seconds.
+                        TimeSpan nextLineTime = (i < lines.Count - 1) ? lines[i + 1].Time : (line.Time + TimeSpan.FromSeconds(2));
+                        TimeSpan diff = nextLineTime - word.Time;
+                        if (diff < TimeSpan.Zero) diff = TimeSpan.FromSeconds(0.5);
+                        if (diff.TotalSeconds > 1.5) diff = TimeSpan.FromSeconds(0.8);
+                        word.Duration = diff;
+                    }
+
+                    if (word.Duration <= TimeSpan.Zero)
+                    {
+                        word.Duration = TimeSpan.FromSeconds(0.2);
+                    }
+
+                    // Cap very long word durations to avoid weird infinite sweeps
+                    if (word.Duration.TotalSeconds > 2.0)
+                    {
+                        word.Duration = TimeSpan.FromSeconds(0.5);
+                    }
+                }
+            }
+
             return lines;
         }
 

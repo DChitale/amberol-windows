@@ -46,6 +46,8 @@ namespace AmberolWpf.Views
         private Brush _activeBrush;
         private Brush _inactiveBrush;
 
+        private SmtcService? _smtcService;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -53,11 +55,7 @@ namespace AmberolWpf.Views
             // Set Window Icon
             try
             {
-                string iconPath = @"d:\Projects\amberol-windows\icon.png";
-                if (System.IO.File.Exists(iconPath))
-                {
-                    this.Icon = new BitmapImage(new Uri(iconPath));
-                }
+                this.Icon = new BitmapImage(new Uri("pack://application:,,,/icon.png"));
             }
             catch { }
             
@@ -88,6 +86,21 @@ namespace AmberolWpf.Views
 
             // Setup CompositionTarget.Rendering for smooth 60fps waveform render updates
             CompositionTarget.Rendering += OnCompositionTargetRendering;
+
+            // Initialize Windows SMTC service
+            try
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                _smtcService = new SmtcService();
+                _smtcService.Initialize(hwnd);
+                _smtcService.PlayPauseRequested += () => Dispatcher.Invoke(() => PlayPauseButton_Click(null, null));
+                _smtcService.NextRequested += () => Dispatcher.Invoke(() => NextButton_Click(null, null));
+                _smtcService.PreviousRequested += () => Dispatcher.Invoke(() => PreviousButton_Click(null, null));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to initialize SMTC service: {ex.Message}");
+            }
         }
 
         #region Session Restoration & Initialization
@@ -393,6 +406,170 @@ namespace AmberolWpf.Views
             }
         }
 
+        private void Window_DragOver(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                e.Effects = DragDropEffects.Copy;
+                e.Handled = true;
+            }
+            else
+            {
+                e.Effects = DragDropEffects.None;
+            }
+        }
+
+        private void Window_Drop(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                string[] filesAndFolders = (string[])e.Data.GetData(DataFormats.FileDrop);
+                if (filesAndFolders != null && filesAndFolders.Length > 0)
+                {
+                    ProcessDroppedItems(filesAndFolders);
+                }
+            }
+        }
+
+        private void ProcessDroppedItems(string[] paths)
+        {
+            var newTracks = new List<Track>();
+            var extensions = new[] { ".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wma" };
+            var filesToProcess = new List<string>();
+
+            foreach (var path in paths)
+            {
+                if (Directory.Exists(path))
+                {
+                    try
+                    {
+                        var dirFiles = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
+                                                .Where(f => extensions.Contains(Path.GetExtension(f).ToLower()))
+                                                .ToList();
+                        filesToProcess.AddRange(dirFiles);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error scanning folder {path}: {ex.Message}");
+                    }
+                }
+                else if (File.Exists(path))
+                {
+                    if (extensions.Contains(Path.GetExtension(path).ToLower()))
+                    {
+                        filesToProcess.Add(path);
+                    }
+                }
+            }
+
+            if (filesToProcess.Count == 0)
+            {
+                ShowCustomMessageBox("No supported audio files found.", "No Media Found", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            int nextId = (_queue.Count > 0) ? (_queue.Max(t => t.Id) + 1) : 1;
+            bool wasQueueEmpty = _queue.Count == 0;
+
+            foreach (var file in filesToProcess)
+            {
+                try
+                {
+                    var tagFile = TagLib.File.Create(file);
+                    
+                    string title = tagFile.Tag.Title;
+                    if (string.IsNullOrEmpty(title))
+                    {
+                        title = Path.GetFileNameWithoutExtension(file);
+                    }
+
+                    string artist = tagFile.Tag.FirstPerformer;
+                    if (string.IsNullOrEmpty(artist)) artist = "Unknown Artist";
+
+                    string album = tagFile.Tag.Album;
+                    if (string.IsNullOrEmpty(album)) album = "Unknown Album";
+
+                    double duration = tagFile.Properties.Duration.TotalSeconds;
+
+                    // Cache cover art if exists
+                    string cachedCoverPath = null;
+                    if (tagFile.Tag.Pictures != null && tagFile.Tag.Pictures.Length > 0)
+                    {
+                        var picture = tagFile.Tag.Pictures[0];
+                        byte[] imgData = picture.Data.Data;
+                        cachedCoverPath = SaveThumbnail(imgData, file);
+                    }
+
+                    var fileInfo = new FileInfo(file);
+                    long size = fileInfo.Length;
+                    long modified = new DateTimeOffset(fileInfo.LastWriteTimeUtc).ToUnixTimeSeconds();
+                    long added = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+                    newTracks.Add(new Track
+                    {
+                        Id = nextId++,
+                        Path = file,
+                        FileName = Path.GetFileName(file),
+                        Title = title,
+                        Artist = artist,
+                        Album = album,
+                        Duration = duration,
+                        CoverArt = cachedCoverPath,
+                        SizeBytes = size,
+                        ModifiedAt = modified,
+                        AddedAt = added
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error scanning file {file}: {ex.Message}");
+                }
+            }
+
+            if (newTracks.Count > 0)
+            {
+                // Add to current queue
+                _queue.AddRange(newTracks);
+                
+                // Cache tracks
+                Database.Instance.SaveTracks(_queue);
+
+                InitializePlaylists();
+
+                // Clean up massive allocation garbage
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+
+                // Switch panels if it was empty
+                if (wasQueueEmpty)
+                {
+                    WelcomePanel.Visibility = Visibility.Collapsed;
+                    AlbumArtBorder.Visibility = Visibility.Visible;
+                    TrackInfoPanel.Visibility = Visibility.Visible;
+                    WaveformCanvas.Visibility = Visibility.Visible;
+                    TimeLabelsPanel.Visibility = Visibility.Visible;
+                    PlaybackControlsPanel.Visibility = Visibility.Visible;
+                    BottomToolbarPanel.Visibility = Visibility.Visible;
+
+                    // Play first song
+                    SelectTrack(0, playImmediately: true);
+                }
+                else
+                {
+                    var selected = PlaylistsListBox.SelectedItem as Playlist;
+                    if (selected != null && selected.Id == 9999) // All Songs
+                    {
+                        var allTracks = Database.Instance.GetTracks();
+                        _browsedQueue = allTracks;
+                        QueueListBox.ItemsSource = null;
+                        QueueListBox.ItemsSource = _browsedQueue;
+                        PlayQueueHeaderTitle.Text = $"Play Queue ({_browsedQueue.Count})";
+                    }
+                }
+            }
+        }
+
         private string SaveThumbnail(byte[] imgData, string trackPath)
         {
             try
@@ -436,7 +613,7 @@ namespace AmberolWpf.Views
         private void ScanAndCacheFolder(string folderPath)
         {
             var tracks = new List<Track>();
-            var extensions = new[] { ".mp3", ".wav", ".flac", ".ogg", ".opus" };
+            var extensions = new[] { ".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wma" };
             
             try
             {
@@ -530,12 +707,12 @@ namespace AmberolWpf.Views
                 }
                 else
                 {
-                    MessageBox.Show("No audio files (.mp3, .wav, .flac, .ogg, .opus) found in this folder.", "No Media Found", MessageBoxButton.OK, MessageBoxImage.Information);
+                    ShowCustomMessageBox("No audio files (.mp3, .wav, .flac, .ogg, .opus, .m4a, .aac, .wma) found in this folder.", "No Media Found", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Failed to scan directory: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                ShowCustomMessageBox("Failed to scan directory: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -588,6 +765,13 @@ namespace AmberolWpf.Views
             // Load Lyrics
             LoadLyrics(track);
 
+            // Update Windows SMTC metadata and status
+            if (_smtcService != null)
+            {
+                _smtcService.UpdateMetadata(track.Title, track.Artist, track.Album, track.CoverArt);
+                _smtcService.SetPlaybackStatus(playImmediately);
+            }
+
             if (playImmediately)
             {
                 try
@@ -598,7 +782,7 @@ namespace AmberolWpf.Views
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(ex.Message, "Playback Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    ShowCustomMessageBox(ex.Message, "Playback Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             else
@@ -891,10 +1075,19 @@ namespace AmberolWpf.Views
                         {
                             var run = new System.Windows.Documents.Run
                             {
-                                Text = word.Text + " ",
-                                Foreground = Brushes.White
+                                Text = word.Text + " "
                             };
-                            run.Tag = word.Time;
+                            
+                            var brush = new LinearGradientBrush
+                            {
+                                StartPoint = new Point(0, 0),
+                                EndPoint = new Point(1, 0)
+                            };
+                            brush.GradientStops.Add(new GradientStop(Colors.White, 0.0));
+                            brush.GradientStops.Add(new GradientStop(Color.FromArgb(102, 255, 255, 255), 0.0));
+                            
+                            run.Foreground = brush;
+                            run.Tag = word;
                             textBlock.Inlines.Add(run);
                         }
                     }
@@ -942,15 +1135,7 @@ namespace AmberolWpf.Views
                 {
                     var oldBlock = _lyricTextBlocks[_lastActiveLyricIndex];
                     AnimateLyricLine(oldBlock, active: false);
-
-                    // Reset all runs inside old active line to full opacity (so parent opacity controls them)
-                    foreach (var inline in oldBlock.Inlines)
-                    {
-                        if (inline is System.Windows.Documents.Run run)
-                        {
-                            run.Foreground = Brushes.White;
-                        }
-                    }
+                    oldBlock.Effect = null;
                 }
 
                 // Highlight new active line
@@ -959,14 +1144,45 @@ namespace AmberolWpf.Views
                     var newBlock = _lyricTextBlocks[activeIndex];
                     AnimateLyricLine(newBlock, active: true);
 
+                    var line = _lyricsLines[activeIndex];
+                    if (line.HasWordSync)
+                    {
+                        newBlock.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                        {
+                            Color = Colors.White,
+                            BlurRadius = 15,
+                            ShadowDepth = 0,
+                            Opacity = 0.7
+                        };
+                    }
+
                     // Smoothly scroll active line to center of scroll view
                     ScrollLyricToCenter(newBlock);
+                }
+
+                // Reset all word-sync lines' gradients to their correct state based on whether they are before or after the active line
+                for (int i = 0; i < _lyricTextBlocks.Count; i++)
+                {
+                    var block = _lyricTextBlocks[i];
+                    var lLine = _lyricsLines[i];
+                    if (lLine.HasWordSync)
+                    {
+                        double targetOffset = (i < activeIndex) ? 1.0 : 0.0;
+                        foreach (var inline in block.Inlines)
+                        {
+                            if (inline is System.Windows.Documents.Run run && run.Foreground is LinearGradientBrush brush && brush.GradientStops.Count >= 2)
+                            {
+                                brush.GradientStops[0].Offset = targetOffset;
+                                brush.GradientStops[1].Offset = targetOffset;
+                            }
+                        }
+                    }
                 }
 
                 _lastActiveLyricIndex = activeIndex;
             }
 
-            // Real-time word-by-word highlighting within the active line
+            // Real-time progressive word-by-word highlighting within the active line
             if (activeIndex >= 0 && activeIndex < _lyricTextBlocks.Count)
             {
                 var activeBlock = _lyricTextBlocks[activeIndex];
@@ -975,15 +1191,26 @@ namespace AmberolWpf.Views
                 {
                     foreach (var inline in activeBlock.Inlines)
                     {
-                        if (inline is System.Windows.Documents.Run run && run.Tag is TimeSpan wordTime)
+                        if (inline is System.Windows.Documents.Run run && run.Tag is LrcWord word)
                         {
-                            if (currentPosition >= wordTime)
+                            double progress = 0.0;
+                            if (currentPosition >= word.Time)
                             {
-                                run.Foreground = Brushes.White;
+                                TimeSpan elapsed = currentPosition - word.Time;
+                                if (word.Duration.TotalMilliseconds > 0)
+                                {
+                                    progress = Math.Clamp(elapsed.TotalMilliseconds / word.Duration.TotalMilliseconds, 0.0, 1.0);
+                                }
+                                else
+                                {
+                                    progress = 1.0;
+                                }
                             }
-                            else
+                            
+                            if (run.Foreground is LinearGradientBrush brush && brush.GradientStops.Count >= 2)
                             {
-                                run.Foreground = new SolidColorBrush(Color.FromArgb(102, 255, 255, 255)); // 0.40 opacity
+                                brush.GradientStops[0].Offset = progress;
+                                brush.GradientStops[1].Offset = progress;
                             }
                         }
                     }
@@ -1065,7 +1292,7 @@ namespace AmberolWpf.Views
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show("Failed to load lyrics: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    ShowCustomMessageBox("Failed to load lyrics: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
@@ -1125,6 +1352,7 @@ namespace AmberolWpf.Views
                 AudioEngine.Instance.Pause();
                 PlayPauseIcon.Data = (Geometry)Application.Current.Resources["IconPlay"];
                 PlayPauseIcon.Margin = new Thickness(4, 0, 0, 0); // Visual offset center
+                _smtcService?.SetPlaybackStatus(false);
             }
             else
             {
@@ -1141,6 +1369,7 @@ namespace AmberolWpf.Views
                     AudioEngine.Instance.Play();
                     PlayPauseIcon.Data = (Geometry)Application.Current.Resources["IconPause"];
                     PlayPauseIcon.Margin = new Thickness(0, 0, 0, 0); // No offset when paused
+                    _smtcService?.SetPlaybackStatus(true);
                 }
             }
         }
@@ -1287,7 +1516,7 @@ namespace AmberolWpf.Views
             }
             else
             {
-                MessageBox.Show("This playlist has no songs.", "Empty Playlist", MessageBoxButton.OK, MessageBoxImage.Information);
+                ShowCustomMessageBox("This playlist has no songs.", "Empty Playlist", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 
@@ -1302,20 +1531,59 @@ namespace AmberolWpf.Views
             var itemDetails = new MenuItem { Header = "Song Details" };
             itemDetails.Click += (s, ev) =>
             {
-                MessageBox.Show($"File: {track.FileName}\nPath: {track.Path}\nSize: {track.SizeBytes / (1024f * 1024f):F2} MB", "Song Details", MessageBoxButton.OK, MessageBoxImage.Information);
+                ShowCustomMessageBox($"File: {track.FileName}\nPath: {track.Path}\nSize: {track.SizeBytes / (1024f * 1024f):F2} MB", "Song Details", MessageBoxButton.OK, MessageBoxImage.Information);
             };
             contextMenu.Items.Add(itemDetails);
 
-            contextMenu.Items.Add(new Separator());
+         //   contextMenu.Items.Add(new Separator());
 
             // Menu Item 2: Add to Playlist
             var itemAddToPlaylist = new MenuItem { Header = "Add to Playlist" };
+
+            // Option to Create a Playlist right from the context menu
+            var itemCreatePlaylist = new MenuItem { Header = "Create Playlist" };
+            itemCreatePlaylist.Click += (s, ev) =>
+            {
+                string name = PromptForPlaylistName();
+                if (string.IsNullOrEmpty(name)) return;
+
+                var freshPlaylists = Database.Instance.GetPlaylists();
+                if (freshPlaylists.Any(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    ShowCustomMessageBox($"A playlist named \"{name}\" already exists.", "Duplicate Playlist", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var newPlaylist = new Playlist
+                {
+                    Id = freshPlaylists.Count > 0 ? freshPlaylists.Max(p => p.Id) + 1 : 1,
+                    Name = name,
+                    CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    TrackIds = new List<int> { track.Id } // Add the song immediately
+                };
+                freshPlaylists.Add(newPlaylist);
+                Database.Instance.SavePlaylists(freshPlaylists);
+
+                InitializePlaylists();
+
+                // Select the newly created playlist in the UI
+                for (int i = 0; i < PlaylistsListBox.Items.Count; i++)
+                {
+                    if (PlaylistsListBox.Items[i] is Playlist pl && pl.Id == newPlaylist.Id)
+                    {
+                        PlaylistsListBox.SelectedIndex = i;
+                        break;
+                    }
+                }
+            };
+            itemAddToPlaylist.Items.Add(itemCreatePlaylist);
             
             var playlists = Database.Instance.GetPlaylists();
             foreach (var p in playlists)
             {
-                // Exclude "Library" virtual playlist from targets
-                if (p.Name == "Library") continue;
+                // Exclude "Library" and "Favorites" from addition list (Favorites has a dedicated star button)
+                if (p.Name == "Library" || p.Name == "Favorites") continue;
 
                 var playlistItem = new MenuItem { Header = p.Name, Tag = p };
                 playlistItem.Click += (s, ev) =>
@@ -1344,12 +1612,6 @@ namespace AmberolWpf.Views
                                     QueueListBox.ItemsSource = _browsedQueue;
                                     PlayQueueHeaderTitle.Text = $"Play Queue ({_browsedQueue.Count})";
                                 }
-
-                                MessageBox.Show($"Added \"{track.Title}\" to playlist \"{dbPlaylist.Name}\".", "Added to Playlist", MessageBoxButton.OK, MessageBoxImage.Information);
-                            }
-                            else
-                            {
-                                MessageBox.Show($"\"{track.Title}\" is already in playlist \"{dbPlaylist.Name}\".", "Already exists", MessageBoxButton.OK, MessageBoxImage.Warning);
                             }
                         }
                     }
@@ -1374,7 +1636,7 @@ namespace AmberolWpf.Views
             var playlists = Database.Instance.GetPlaylists();
             if (playlists.Any(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
             {
-                MessageBox.Show($"A playlist named \"{name}\" already exists.", "Duplicate Playlist", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowCustomMessageBox($"A playlist named \"{name}\" already exists.", "Duplicate Playlist", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -1408,7 +1670,7 @@ namespace AmberolWpf.Views
             var playlist = (Playlist)button.Tag;
             if (playlist == null || !playlist.CanDelete) return;
 
-            var result = MessageBox.Show($"Are you sure you want to delete the playlist \"{playlist.Name}\"?", "Delete Playlist", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            var result = ShowCustomMessageBox($"Are you sure you want to delete the playlist \"{playlist.Name}\"?", "Delete Playlist", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (result == MessageBoxResult.Yes)
             {
                 var playlists = Database.Instance.GetPlaylists();
@@ -1515,9 +1777,122 @@ namespace AmberolWpf.Views
             return null;
         }
 
+        private MessageBoxResult ShowCustomMessageBox(string message, string title, MessageBoxButton buttons = MessageBoxButton.OK, MessageBoxImage icon = MessageBoxImage.None)
+        {
+            var dialog = new Window
+            {
+                Title = title,
+                Width = 360,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = Brushes.Transparent
+            };
+
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(242, 18, 19, 26)), // #F212131A
+                BorderBrush = new SolidColorBrush(Color.FromArgb(38, 255, 255, 255)), // #26FFFFFF
+                BorderThickness = new Thickness(1.5),
+                CornerRadius = new CornerRadius(0)
+            };
+
+            var grid = new Grid { Margin = new Thickness(24) };
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Title
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Message
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Buttons
+
+            // Title
+            var titleTxt = new TextBlock
+            {
+                Text = title,
+                Foreground = Brushes.White,
+                FontSize = 15,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 12),
+                TextWrapping = TextWrapping.Wrap
+            };
+            Grid.SetRow(titleTxt, 0);
+            grid.Children.Add(titleTxt);
+
+            // Message
+            var msgTxt = new TextBlock
+            {
+                Text = message,
+                Foreground = new SolidColorBrush(Color.FromRgb(190, 190, 200)),
+                FontSize = 13,
+                LineHeight = 18,
+                Margin = new Thickness(0, 0, 0, 20),
+                TextWrapping = TextWrapping.Wrap
+            };
+            Grid.SetRow(msgTxt, 1);
+            grid.Children.Add(msgTxt);
+
+            // Buttons grid
+            var buttonGrid = new Grid();
+            var result = MessageBoxResult.None;
+
+            if (buttons == MessageBoxButton.YesNo)
+            {
+                buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+                buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var btnNo = new Button
+                {
+                    Content = "No",
+                    Style = (Style)FindResource("TextButtonStyle"),
+                    Height = 32
+                };
+                btnNo.Click += (s, ev) => { result = MessageBoxResult.No; dialog.DialogResult = false; dialog.Close(); };
+                Grid.SetColumn(btnNo, 0);
+                buttonGrid.Children.Add(btnNo);
+
+                var btnYes = new Button
+                {
+                    Content = "Yes",
+                    Style = (Style)FindResource("TextButtonStyle"),
+                    Background = new SolidColorBrush(Color.FromRgb(37, 99, 235)),
+                    Height = 32,
+                    IsDefault = true
+                };
+                btnYes.Click += (s, ev) => { result = MessageBoxResult.Yes; dialog.DialogResult = true; dialog.Close(); };
+                Grid.SetColumn(btnYes, 2);
+                buttonGrid.Children.Add(btnYes);
+            }
+            else // Default OK button
+            {
+                buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var btnOk = new Button
+                {
+                    Content = "OK",
+                    Style = (Style)FindResource("TextButtonStyle"),
+                    Background = new SolidColorBrush(Color.FromRgb(37, 99, 235)),
+                    Height = 32,
+                    IsDefault = true
+                };
+                btnOk.Click += (s, ev) => { result = MessageBoxResult.OK; dialog.DialogResult = true; dialog.Close(); };
+                Grid.SetColumn(btnOk, 0);
+                buttonGrid.Children.Add(btnOk);
+            }
+
+            Grid.SetRow(buttonGrid, 2);
+            grid.Children.Add(buttonGrid);
+
+            border.Child = grid;
+            dialog.Content = border;
+
+            dialog.ShowDialog();
+            return result;
+        }
+
         private void ClearCache_Click(object sender, RoutedEventArgs e)
         {
-            var result = MessageBox.Show("Are you sure you want to clear the track cache and local cover thumbnails? Your playlists will be preserved.", "Clear Cache", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            var result = ShowCustomMessageBox("Are you sure you want to clear the track cache and local cover thumbnails? Your playlists will be preserved.", "Clear Cache", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (result == MessageBoxResult.Yes)
             {
                 // Stop playback
@@ -1557,8 +1932,7 @@ namespace AmberolWpf.Views
 
                 // Show welcome screen
                 ShowWelcomeScreen();
-
-                MessageBox.Show("Cache cleared successfully.", "Clear Cache", MessageBoxButton.OK, MessageBoxImage.Information);
+                ShowCustomMessageBox("Cache cleared successfully.", "Clear Cache", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 
@@ -1764,6 +2138,19 @@ namespace AmberolWpf.Views
             {
                 _browsedQueue.RemoveAt(idx);
                 
+                // Persist removal to the database if viewing a specific playlist
+                if (PlaylistsListBox.SelectedItem is Playlist selectedPlaylist && selectedPlaylist.Id != 9999)
+                {
+                    var playlists = Database.Instance.GetPlaylists();
+                    var dbPlaylist = playlists.Find(p => p.Id == selectedPlaylist.Id);
+                    if (dbPlaylist != null)
+                    {
+                        dbPlaylist.TrackIds.Remove(track.Id);
+                        dbPlaylist.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                        Database.Instance.SavePlaylists(playlists);
+                    }
+                }
+
                 // If active playing queue is the same, also update it
                 if (_queue == _browsedQueue)
                 {
