@@ -21,6 +21,10 @@ namespace AmberolWpf.Services
         private bool _isChangingTrack = false;
         private System.Timers.Timer _positionTimer;
 
+        // Tracks exact playback position from hardware output bytes
+        private TimeSpan _positionAtSeek = TimeSpan.Zero;
+        private long _waveOutBytesAtSeek = 0;
+
         public event EventHandler PlaybackFinished;
         public event EventHandler<TimeSpan> PositionChanged;
 
@@ -40,13 +44,33 @@ namespace AmberolWpf.Services
             get
             {
                 if (_audioReader == null) return TimeSpan.Zero;
-                return _audioReader.CurrentTime;
+                if (_waveOut == null) return _audioReader.CurrentTime;
+                try
+                {
+                    // GetPosition() returns actual bytes rendered by hardware — no buffer lag.
+                    long currentBytes = _waveOut.GetPosition();
+                    long deltaBytes = Math.Max(0, currentBytes - _waveOutBytesAtSeek);
+                    var fmt = _eqProvider?.WaveFormat ?? _audioReader.WaveFormat;
+                    if (fmt.AverageBytesPerSecond <= 0) return _audioReader.CurrentTime;
+                    var pos = _positionAtSeek + TimeSpan.FromSeconds(deltaBytes / (double)fmt.AverageBytesPerSecond);
+                    var total = _audioReader.TotalTime;
+                    return pos > total ? total : pos;
+                }
+                catch
+                {
+                    return _audioReader.CurrentTime;
+                }
             }
             set
             {
                 if (_audioReader != null)
                 {
                     _audioReader.CurrentTime = value;
+                    _speedProvider?.Reset();
+                    // Record offset so GetPosition() delta is relative to the seek point
+                    _positionAtSeek = value;
+                    if (_waveOut != null)
+                        _waveOutBytesAtSeek = _waveOut.GetPosition();
                 }
             }
         }
@@ -151,6 +175,10 @@ namespace AmberolWpf.Services
                 _waveOut.PlaybackStopped += OnPlaybackStopped;
                 _waveOut.Play();
 
+                // Reset position tracking — GetPosition() starts at 0 on a new device
+                _positionAtSeek = TimeSpan.Zero;
+                _waveOutBytesAtSeek = 0;
+
                 _isChangingTrack = false;
                 _positionTimer.Start();
             }
@@ -221,7 +249,8 @@ namespace AmberolWpf.Services
         {
             if (IsPlaying && _audioReader != null)
             {
-                PositionChanged?.Invoke(this, _audioReader.CurrentTime);
+                // Fire with the accurate hardware position, not the buffered reader position
+                PositionChanged?.Invoke(this, Position);
             }
         }
 
@@ -261,14 +290,27 @@ namespace AmberolWpf.Services
             }
         }
 
+        public void Reset()
+        {
+            _sourceBufferLength = 0;
+            _currentSourceIndex = 0.0;
+        }
+
+        public double BufferDelaySeconds
+        {
+            get
+            {
+                int channels = _source.WaveFormat.Channels;
+                int sampleRate = _source.WaveFormat.SampleRate;
+                if (sampleRate <= 0 || channels <= 0) return 0.0;
+                double remainingSamples = _sourceBufferLength - (_currentSourceIndex * channels);
+                return Math.Max(0.0, remainingSamples / (sampleRate * channels));
+            }
+        }
+
         public int Read(float[] buffer, int offset, int count)
         {
             int channels = _source.WaveFormat.Channels;
-            if (Math.Abs(_playbackSpeed - 1.0) < 0.001)
-            {
-                return _source.Read(buffer, offset, count);
-            }
-
             int framesNeeded = count / channels;
             int framesWritten = 0;
 

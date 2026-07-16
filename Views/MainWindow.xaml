@@ -11,7 +11,6 @@
         ResizeMode="NoResize"
         WindowStartupLocation="Manual"
         SourceInitialized="Window_SourceInitialized"
-        FontFamily="Google Sans, Segoe UI, Arial"
         AllowDrop="True"
         DragOver="Window_DragOver"
         Drop="Window_Drop">
@@ -88,7 +87,6 @@
                                         <Style TargetType="{x:Type TextBlock}">
                                             <Setter Property="Foreground" Value="White"/>
                                             <Setter Property="FontSize" Value="13"/>
-                                            <Setter Property="FontFamily" Value="Google Sans, Segoe UI, Arial"/>
                                         </Style>
                                     </ContentPresenter.Resources>
                                 </ContentPresenter>
@@ -489,7 +487,8 @@
                         </Button>
                     </Grid>
                     
-                    <ListBox x:Name="PlaylistsListBox" Grid.Row="1" Background="Transparent" BorderThickness="0" SelectionChanged="PlaylistsListBox_SelectionChanged">
+                    <ListBox x:Name="PlaylistsListBox" Grid.Row="1" Background="Transparent" BorderThickness="0" SelectionChanged="PlaylistsListBox_SelectionChanged"
+                             VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Grid Margin="0,2" Height="32" Width="332">
@@ -543,7 +542,8 @@
                 </Grid>
 
                 <!-- Row 4: Queue List -->
-                <ListBox x:Name="QueueListBox" Grid.Row="4" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Hidden" ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="QueueListBox_SelectionChanged">
+                <ListBox x:Name="QueueListBox" Grid.Row="4" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Hidden" ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="QueueListBox_SelectionChanged"
+                         VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Grid Margin="0,4" Width="332">
@@ -594,12 +594,15 @@
                     </ListBox.ItemContainerStyle>
                 </ListBox>
 
-                <!-- Row 5: Clear Cache Center Bottom -->
-                <Grid Grid.Row="5" Margin="0,12,0,0" HorizontalAlignment="Center">
+                <!-- Row 5: Clear Cache and Refresh Folder Center Bottom -->
+                <StackPanel Grid.Row="5" Margin="0,12,0,0" Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Button Style="{StaticResource TextButtonStyle}" Height="28" Padding="12,2" Background="#0AFFFFFF" BorderBrush="#14FFFFFF" BorderThickness="1" Click="RefreshFolder_Click" Margin="0,0,12,0" ToolTip="Scan for new songs in the last opened folder">
+                        <TextBlock Text="Refresh Folder" Foreground="#80FFFFFF" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </Button>
                     <Button Style="{StaticResource TextButtonStyle}" Height="28" Padding="12,2" Background="#0AFFFFFF" BorderBrush="#14FFFFFF" BorderThickness="1" Click="ClearCache_Click">
                         <TextBlock Text="Clear Cache" Foreground="#80FFFFFF" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
                     </Button>
-                </Grid>
+                </StackPanel>
             </Grid>
         </Grid>
 

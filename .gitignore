@@ -25,7 +25,7 @@ obj/
 *.suo
 
 # Output
-Output/*
+**/Output/*
 
 ## OS files
 Thumbs.db

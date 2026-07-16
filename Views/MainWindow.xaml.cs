@@ -475,50 +475,51 @@ namespace AmberolWpf.Views
             {
                 try
                 {
-                    var tagFile = TagLib.File.Create(file);
-                    
-                    string title = tagFile.Tag.Title;
-                    if (string.IsNullOrEmpty(title))
+                    using (var tagFile = TagLib.File.Create(file))
                     {
-                        title = Path.GetFileNameWithoutExtension(file);
+                        string title = tagFile.Tag.Title;
+                        if (string.IsNullOrEmpty(title))
+                        {
+                            title = Path.GetFileNameWithoutExtension(file);
+                        }
+
+                        string artist = tagFile.Tag.FirstPerformer;
+                        if (string.IsNullOrEmpty(artist)) artist = "Unknown Artist";
+
+                        string album = tagFile.Tag.Album;
+                        if (string.IsNullOrEmpty(album)) album = "Unknown Album";
+
+                        double duration = tagFile.Properties.Duration.TotalSeconds;
+
+                        // Cache cover art if exists
+                        string cachedCoverPath = null;
+                        if (tagFile.Tag.Pictures != null && tagFile.Tag.Pictures.Length > 0)
+                        {
+                            var picture = tagFile.Tag.Pictures[0];
+                            byte[] imgData = picture.Data.Data;
+                            cachedCoverPath = SaveThumbnail(imgData, file);
+                        }
+
+                        var fileInfo = new FileInfo(file);
+                        long size = fileInfo.Length;
+                        long modified = new DateTimeOffset(fileInfo.LastWriteTimeUtc).ToUnixTimeSeconds();
+                        long added = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+                        newTracks.Add(new Track
+                        {
+                            Id = nextId++,
+                            Path = file,
+                            FileName = Path.GetFileName(file),
+                            Title = title,
+                            Artist = artist,
+                            Album = album,
+                            Duration = duration,
+                            CoverArt = cachedCoverPath,
+                            SizeBytes = size,
+                            ModifiedAt = modified,
+                            AddedAt = added
+                        });
                     }
-
-                    string artist = tagFile.Tag.FirstPerformer;
-                    if (string.IsNullOrEmpty(artist)) artist = "Unknown Artist";
-
-                    string album = tagFile.Tag.Album;
-                    if (string.IsNullOrEmpty(album)) album = "Unknown Album";
-
-                    double duration = tagFile.Properties.Duration.TotalSeconds;
-
-                    // Cache cover art if exists
-                    string cachedCoverPath = null;
-                    if (tagFile.Tag.Pictures != null && tagFile.Tag.Pictures.Length > 0)
-                    {
-                        var picture = tagFile.Tag.Pictures[0];
-                        byte[] imgData = picture.Data.Data;
-                        cachedCoverPath = SaveThumbnail(imgData, file);
-                    }
-
-                    var fileInfo = new FileInfo(file);
-                    long size = fileInfo.Length;
-                    long modified = new DateTimeOffset(fileInfo.LastWriteTimeUtc).ToUnixTimeSeconds();
-                    long added = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-                    newTracks.Add(new Track
-                    {
-                        Id = nextId++,
-                        Path = file,
-                        FileName = Path.GetFileName(file),
-                        Title = title,
-                        Artist = artist,
-                        Album = album,
-                        Duration = duration,
-                        CoverArt = cachedCoverPath,
-                        SizeBytes = size,
-                        ModifiedAt = modified,
-                        AddedAt = added
-                    });
                 }
                 catch (Exception ex)
                 {
@@ -626,50 +627,51 @@ namespace AmberolWpf.Views
                 {
                     try
                     {
-                        var tagFile = TagLib.File.Create(file);
-                        
-                        string title = tagFile.Tag.Title;
-                        if (string.IsNullOrEmpty(title))
+                        using (var tagFile = TagLib.File.Create(file))
                         {
-                            title = Path.GetFileNameWithoutExtension(file);
+                            string title = tagFile.Tag.Title;
+                            if (string.IsNullOrEmpty(title))
+                            {
+                                title = Path.GetFileNameWithoutExtension(file);
+                            }
+
+                            string artist = tagFile.Tag.FirstPerformer;
+                            if (string.IsNullOrEmpty(artist)) artist = "Unknown Artist";
+
+                            string album = tagFile.Tag.Album;
+                            if (string.IsNullOrEmpty(album)) album = "Unknown Album";
+
+                            double duration = tagFile.Properties.Duration.TotalSeconds;
+
+                            // Cache cover art if exists
+                            string cachedCoverPath = null;
+                            if (tagFile.Tag.Pictures != null && tagFile.Tag.Pictures.Length > 0)
+                            {
+                                var picture = tagFile.Tag.Pictures[0];
+                                byte[] imgData = picture.Data.Data;
+                                cachedCoverPath = SaveThumbnail(imgData, file);
+                            }
+
+                            var fileInfo = new FileInfo(file);
+                            long size = fileInfo.Length;
+                            long modified = new DateTimeOffset(fileInfo.LastWriteTimeUtc).ToUnixTimeSeconds();
+                            long added = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+                            tracks.Add(new Track
+                            {
+                                Id = id++,
+                                Path = file,
+                                FileName = Path.GetFileName(file),
+                                Title = title,
+                                Artist = artist,
+                                Album = album,
+                                Duration = duration,
+                                CoverArt = cachedCoverPath,
+                                SizeBytes = size,
+                                ModifiedAt = modified,
+                                AddedAt = added
+                            });
                         }
-
-                        string artist = tagFile.Tag.FirstPerformer;
-                        if (string.IsNullOrEmpty(artist)) artist = "Unknown Artist";
-
-                        string album = tagFile.Tag.Album;
-                        if (string.IsNullOrEmpty(album)) album = "Unknown Album";
-
-                        double duration = tagFile.Properties.Duration.TotalSeconds;
-
-                        // Cache cover art if exists
-                        string cachedCoverPath = null;
-                        if (tagFile.Tag.Pictures != null && tagFile.Tag.Pictures.Length > 0)
-                        {
-                            var picture = tagFile.Tag.Pictures[0];
-                            byte[] imgData = picture.Data.Data;
-                            cachedCoverPath = SaveThumbnail(imgData, file);
-                        }
-
-                        var fileInfo = new FileInfo(file);
-                        long size = fileInfo.Length;
-                        long modified = new DateTimeOffset(fileInfo.LastWriteTimeUtc).ToUnixTimeSeconds();
-                        long added = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-                        tracks.Add(new Track
-                        {
-                            Id = id++,
-                            Path = file,
-                            FileName = Path.GetFileName(file),
-                            Title = title,
-                            Artist = artist,
-                            Album = album,
-                            Duration = duration,
-                            CoverArt = cachedCoverPath,
-                            SizeBytes = size,
-                            ModifiedAt = modified,
-                            AddedAt = added
-                        });
                     }
                     catch (Exception ex)
                     {
@@ -811,22 +813,24 @@ namespace AmberolWpf.Views
         {
             try
             {
-                var tagFile = TagLib.File.Create(trackPath);
-                if (tagFile.Tag.Pictures != null && tagFile.Tag.Pictures.Length > 0)
+                using (var tagFile = TagLib.File.Create(trackPath))
                 {
-                    var picture = tagFile.Tag.Pictures[0];
-                    byte[] imgData = picture.Data.Data;
-                    using (var ms = new MemoryStream(imgData))
+                    if (tagFile.Tag.Pictures != null && tagFile.Tag.Pictures.Length > 0)
                     {
-                        var bitmap = new BitmapImage();
-                        bitmap.BeginInit();
-                        bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
-                        bitmap.CacheOption = BitmapCacheOption.OnLoad; // Load immediately so the stream can be disposed
-                        bitmap.DecodePixelWidth = 200; // Limit image decode size! Huge RAM saver!
-                        bitmap.StreamSource = ms;
-                        bitmap.EndInit();
-                        bitmap.Freeze(); // Freeze to allow thread-safe usage and free stream resources!
-                        return bitmap;
+                        var picture = tagFile.Tag.Pictures[0];
+                        byte[] imgData = picture.Data.Data;
+                        using (var ms = new MemoryStream(imgData))
+                        {
+                            var bitmap = new BitmapImage();
+                            bitmap.BeginInit();
+                            bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+                            bitmap.CacheOption = BitmapCacheOption.OnLoad; // Load immediately so the stream can be disposed
+                            bitmap.DecodePixelWidth = 200; // Limit image decode size! Huge RAM saver!
+                            bitmap.StreamSource = ms;
+                            bitmap.EndInit();
+                            bitmap.Freeze(); // Freeze to allow thread-safe usage and free stream resources!
+                            return bitmap;
+                        }
                     }
                 }
             }
@@ -1036,8 +1040,10 @@ namespace AmberolWpf.Views
             {
                 try
                 {
-                    var tagFile = TagLib.File.Create(track.Path);
-                    lrcText = tagFile.Tag.Lyrics;
+                    using (var tagFile = TagLib.File.Create(track.Path))
+                    {
+                        lrcText = tagFile.Tag.Lyrics;
+                    }
                 }
                 catch { }
             }
@@ -1069,32 +1075,7 @@ namespace AmberolWpf.Views
                         Tag = i
                     };
 
-                    if (line.HasWordSync)
-                    {
-                        foreach (var word in line.Words)
-                        {
-                            var run = new System.Windows.Documents.Run
-                            {
-                                Text = word.Text + " "
-                            };
-                            
-                            var brush = new LinearGradientBrush
-                            {
-                                StartPoint = new Point(0, 0),
-                                EndPoint = new Point(1, 0)
-                            };
-                            brush.GradientStops.Add(new GradientStop(Colors.White, 0.0));
-                            brush.GradientStops.Add(new GradientStop(Color.FromArgb(102, 255, 255, 255), 0.0));
-                            
-                            run.Foreground = brush;
-                            run.Tag = word;
-                            textBlock.Inlines.Add(run);
-                        }
-                    }
-                    else
-                    {
-                        textBlock.Text = line.Text;
-                    }
+                    textBlock.Text = line.Text;
 
                     // Clicking a line seeks player to that time
                     textBlock.MouseLeftButtonDown += LyricLine_MouseLeftButtonDown;
@@ -1144,77 +1125,11 @@ namespace AmberolWpf.Views
                     var newBlock = _lyricTextBlocks[activeIndex];
                     AnimateLyricLine(newBlock, active: true);
 
-                    var line = _lyricsLines[activeIndex];
-                    if (line.HasWordSync)
-                    {
-                        newBlock.Effect = new System.Windows.Media.Effects.DropShadowEffect
-                        {
-                            Color = Colors.White,
-                            BlurRadius = 15,
-                            ShadowDepth = 0,
-                            Opacity = 0.7
-                        };
-                    }
-
                     // Smoothly scroll active line to center of scroll view
                     ScrollLyricToCenter(newBlock);
                 }
 
-                // Reset all word-sync lines' gradients to their correct state based on whether they are before or after the active line
-                for (int i = 0; i < _lyricTextBlocks.Count; i++)
-                {
-                    var block = _lyricTextBlocks[i];
-                    var lLine = _lyricsLines[i];
-                    if (lLine.HasWordSync)
-                    {
-                        double targetOffset = (i < activeIndex) ? 1.0 : 0.0;
-                        foreach (var inline in block.Inlines)
-                        {
-                            if (inline is System.Windows.Documents.Run run && run.Foreground is LinearGradientBrush brush && brush.GradientStops.Count >= 2)
-                            {
-                                brush.GradientStops[0].Offset = targetOffset;
-                                brush.GradientStops[1].Offset = targetOffset;
-                            }
-                        }
-                    }
-                }
-
                 _lastActiveLyricIndex = activeIndex;
-            }
-
-            // Real-time progressive word-by-word highlighting within the active line
-            if (activeIndex >= 0 && activeIndex < _lyricTextBlocks.Count)
-            {
-                var activeBlock = _lyricTextBlocks[activeIndex];
-                var line = _lyricsLines[activeIndex];
-                if (line.HasWordSync)
-                {
-                    foreach (var inline in activeBlock.Inlines)
-                    {
-                        if (inline is System.Windows.Documents.Run run && run.Tag is LrcWord word)
-                        {
-                            double progress = 0.0;
-                            if (currentPosition >= word.Time)
-                            {
-                                TimeSpan elapsed = currentPosition - word.Time;
-                                if (word.Duration.TotalMilliseconds > 0)
-                                {
-                                    progress = Math.Clamp(elapsed.TotalMilliseconds / word.Duration.TotalMilliseconds, 0.0, 1.0);
-                                }
-                                else
-                                {
-                                    progress = 1.0;
-                                }
-                            }
-                            
-                            if (run.Foreground is LinearGradientBrush brush && brush.GradientStops.Count >= 2)
-                            {
-                                brush.GradientStops[0].Offset = progress;
-                                brush.GradientStops[1].Offset = progress;
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -1305,6 +1220,7 @@ namespace AmberolWpf.Views
         {
             Dispatcher.Invoke(() =>
             {
+                // currentPosition is now hardware-accurate (from WaveOutEvent.GetPosition())
                 double seconds = currentPosition.TotalSeconds;
                 CurrentTimeText.Text = FormatTime(seconds);
 
@@ -1314,6 +1230,9 @@ namespace AmberolWpf.Views
                     double remaining = Math.Max(0, tot - seconds);
                     RemainingTimeText.Text = "-" + FormatTime(remaining);
                 }
+
+                // Sync lyrics with the same accurate position
+                SyncLyricsProgress(currentPosition);
             });
         }
 
@@ -1888,6 +1807,158 @@ namespace AmberolWpf.Views
 
             dialog.ShowDialog();
             return result;
+        }
+
+        private void RefreshFolder_Click(object sender, RoutedEventArgs e)
+        {
+            string lastScannedFolder = Database.Instance.GetSetting("last_scanned_folder", "");
+            if (string.IsNullOrEmpty(lastScannedFolder) || !Directory.Exists(lastScannedFolder))
+            {
+                ShowCustomMessageBox("No folder has been opened yet. Please open a folder first.", "Refresh Folder", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var extensions = new[] { ".mp3", ".wav", ".flac", ".ogg", ".opus", ".m4a", ".aac", ".wma" };
+            
+            try
+            {
+                var files = Directory.GetFiles(lastScannedFolder, "*.*", SearchOption.AllDirectories)
+                                     .Where(f => extensions.Contains(Path.GetExtension(f).ToLower()))
+                                     .ToList();
+
+                var existingTracks = Database.Instance.GetTracks();
+                var existingPaths = new HashSet<string>(existingTracks.Select(t => t.Path), StringComparer.OrdinalIgnoreCase);
+                var newFiles = files.Where(f => !existingPaths.Contains(f)).ToList();
+
+                if (newFiles.Count == 0)
+                {
+                    ShowCustomMessageBox("No new songs found in the folder.", "Refresh Folder", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                int nextId = existingTracks.Count > 0 ? existingTracks.Max(t => t.Id) + 1 : 1;
+                var newTracks = new List<Track>();
+
+                foreach (string file in newFiles)
+                {
+                    try
+                    {
+                        using (var tagFile = TagLib.File.Create(file))
+                        {
+                            string title = tagFile.Tag.Title;
+                            if (string.IsNullOrEmpty(title))
+                            {
+                                title = Path.GetFileNameWithoutExtension(file);
+                            }
+
+                            string artist = tagFile.Tag.FirstPerformer;
+                            if (string.IsNullOrEmpty(artist)) artist = "Unknown Artist";
+
+                            string album = tagFile.Tag.Album;
+                            if (string.IsNullOrEmpty(album)) album = "Unknown Album";
+
+                            double duration = tagFile.Properties.Duration.TotalSeconds;
+
+                            // Cache cover art if exists
+                            string cachedCoverPath = null;
+                            if (tagFile.Tag.Pictures != null && tagFile.Tag.Pictures.Length > 0)
+                            {
+                                var picture = tagFile.Tag.Pictures[0];
+                                byte[] imgData = picture.Data.Data;
+                                cachedCoverPath = SaveThumbnail(imgData, file);
+                            }
+
+                            var fileInfo = new FileInfo(file);
+                            long size = fileInfo.Length;
+                            long modified = new DateTimeOffset(fileInfo.LastWriteTimeUtc).ToUnixTimeSeconds();
+                            long added = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+                            newTracks.Add(new Track
+                            {
+                                Id = nextId++,
+                                Path = file,
+                                FileName = Path.GetFileName(file),
+                                Title = title,
+                                Artist = artist,
+                                Album = album,
+                                Duration = duration,
+                                CoverArt = cachedCoverPath,
+                                SizeBytes = size,
+                                ModifiedAt = modified,
+                                AddedAt = added
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error scanning file {file}: {ex.Message}");
+                    }
+                }
+
+                if (newTracks.Count > 0)
+                {
+                    existingTracks.AddRange(newTracks);
+                    Database.Instance.SaveTracks(existingTracks);
+
+                    // Add new tracks to the active queue if they aren't already there
+                    foreach (var track in newTracks)
+                    {
+                        if (!_queue.Any(t => t.Path.Equals(track.Path, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            _queue.Add(track);
+                        }
+                    }
+
+                    // If we are currently viewing the "All Songs" playlist, update _browsedQueue too
+                    if (PlaylistsListBox.SelectedItem is Playlist p && p.Id == 9999)
+                    {
+                        foreach (var track in newTracks)
+                        {
+                            if (!_browsedQueue.Any(t => t.Path.Equals(track.Path, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                _browsedQueue.Add(track);
+                            }
+                        }
+                    }
+
+                    // Refresh Queue UI
+                    QueueListBox.ItemsSource = null;
+                    QueueListBox.ItemsSource = _browsedQueue;
+                    PlayQueueHeaderTitle.Text = $"Play Queue ({_browsedQueue.Count})";
+
+                    // Clean up allocations from scanning files
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+
+                    // If welcome screen was visible, transition to player UI
+                    if (WelcomePanel.Visibility == Visibility.Visible)
+                    {
+                        WelcomePanel.Visibility = Visibility.Collapsed;
+                        AlbumArtBorder.Visibility = Visibility.Visible;
+                        TrackInfoPanel.Visibility = Visibility.Visible;
+                        WaveformCanvas.Visibility = Visibility.Visible;
+                        TimeLabelsPanel.Visibility = Visibility.Visible;
+                        PlaybackControlsPanel.Visibility = Visibility.Visible;
+                        BottomToolbarPanel.Visibility = Visibility.Visible;
+
+                        _queue = existingTracks;
+                        _currentTrackIndex = 0;
+                        InitializePlaylists();
+                        SelectTrack(0, playImmediately: true);
+                    }
+
+                    ShowCustomMessageBox($"Successfully added {newTracks.Count} new song(s) to the queue.", "Refresh Folder", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    ShowCustomMessageBox("No new songs could be read.", "Refresh Folder", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowCustomMessageBox("Failed to refresh folder: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private void ClearCache_Click(object sender, RoutedEventArgs e)
