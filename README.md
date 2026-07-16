@@ -1,6 +1,6 @@
 # Amberol Windows
 <div align="center">
-<img width="100" height="100" alt="Amberol logo emblem" src="https://raw.githubusercontent.com/DChitale/amberol-windows/v2/icon.png" />
+<img width="100" height="100" alt="Amberol logo emblem" src="https://raw.githubusercontent.com/DChitale/amberol-windows/v2/icon.ico" />
 </div>
 <div align="center">
   <p>A lightweight, minimalist music player for Windows. Replicating the aesthetic of GNOME's Amberol, built natively on WPF, C#, and NAudio.</p>
